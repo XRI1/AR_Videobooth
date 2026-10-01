@@ -48,6 +48,16 @@ Upload the `dist/` folder to any static HTTPS host (Netlify, Vercel, GitHub Page
 
 Tips: good lighting improves the cut-out edges. On older phones, set **Body tracking model = Lite** and **Cut-out quality = Fast**. If the ring spins the wrong way when you walk around with 360° lock on, enable **Invert 360° gyro direction**.
 
+## Lock button (world-lock AR)
+
+Once a person is detected, the padlock button pins the text, badges and effects to the person's spot **in the room**. After that, walking around or panning the phone makes them behave like real objects.
+
+- **Android + Chrome with ARCore** (Google Play Services for AR installed): Lock switches into WebXR AR mode. ARCore tracks the phone's position and rotation. The text is placed at the person's real distance, measured by hit-testing the floor at their feet, or estimated from torso size if no floor is found. The pill shows the measured distance, e.g. `AR locked · 2.5 m`. Recording continues through the switch.
+- **Other phones:** falls back to a motion-sensor lock. The text keeps a fixed facing in the room while you orbit the person.
+- **Tap again to unlock:** returns to body-following mode with the normal camera.
+
+Tips: press Lock while the person's full body, including their feet, is in view. If ARCore needs to find the floor first, move the phone slightly side to side for a second.
+
 ## How it works
 
 Each frame is composited in four layers ([src/arScene.js](src/arScene.js)):

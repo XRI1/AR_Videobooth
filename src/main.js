@@ -5,6 +5,7 @@ import { PersonTracker } from './tracker.js';
 import { Gyro } from './gyro.js';
 import { Recorder } from './recorder.js';
 import { ARScene } from './arScene.js';
+import { WorldLockXR } from './xrLock.js';
 import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile } from './settings.js';
 
 const BASE = import.meta.env.BASE_URL;
@@ -21,6 +22,7 @@ let logo = null; // { texture, aspect } from an uploaded image
 let photoRequested = false;
 let resultUrl = null;
 const fonts = new Map();
+let xrLock = null; // active world-lock AR session (Android + ARCore)
 
 /* ------------------------------ helpers ------------------------------ */
 
@@ -103,21 +105,19 @@ function frame(now) {
   const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
   last = now;
 
-  tracker.detect(camera.video);
-  ar.updateMask(tracker);
-  ar.update(dt, {
-    pose: tracker.pose,
-    poseVersion: tracker.poseVersion,
-    poseTime: tracker.poseTime,
-    settings,
-    gyro,
-  });
-  ar.render(settings.occlusion);
-
-  if (photoRequested) {
-    photoRequested = false;
-    // Must read the canvas in the same task as the render.
-    $('stage').toBlob((blob) => blob && showResult(blob, 'image'), 'image/jpeg', 0.92);
+  // In world-lock AR mode the WebXR session drives detection and drawing.
+  if (!ar.xr) {
+    tracker.detect(camera.video);
+    ar.updateMask(tracker);
+    ar.update(dt, {
+      pose: tracker.pose,
+      poseVersion: tracker.poseVersion,
+      poseTime: tracker.poseTime,
+      settings,
+      gyro,
+    });
+    ar.render(settings.occlusion);
+    takePhotoIfRequested();
   }
 
   if (now - hudTick > 200) {
@@ -125,6 +125,13 @@ function frame(now) {
     updateHud();
     updateLockButton();
   }
+}
+
+function takePhotoIfRequested() {
+  if (!photoRequested) return;
+  photoRequested = false;
+  // Must read the canvas in the same task as the render.
+  $('stage').toBlob((blob) => blob && showResult(blob, 'image'), 'image/jpeg', 0.92);
 }
 
 function updateHud() {
@@ -135,6 +142,13 @@ function updateHud() {
     pill.textContent = `● REC ${fmtTime(t)}`;
     $('recTime').textContent = fmtTime(t);
     if (t >= MAX_RECORD_SECONDS) stopRecording();
+    return;
+  }
+  if (ar.xr) {
+    pill.className = `pill ${ar.xr.placed ? 'ok' : 'warn'}`;
+    pill.textContent = ar.xr.placed
+      ? `AR locked · ${ar.xr.distance.toFixed(1)} m${ar.xr.usedFloor ? '' : ' (est.)'}`
+      : 'Placing… keep the person in view';
     return;
   }
   if (ar.locked) {
@@ -165,10 +179,16 @@ function updateLockButton() {
 /* ------------------------------ lock ------------------------------ */
 
 $('btnLock').addEventListener('click', async () => {
-  if (!ar) return;
+  if (!ar || lockBusy) return;
+  if (xrLock?.active) {
+    xrLock.end(); // onEnd restores the normal camera
+    return;
+  }
   if (ar.locked) {
     ar.setLocked(false);
     toast('Unlocked: text follows the body again');
+  } else if (camera.facing !== 'file' && (await WorldLockXR.isSupported()) && (await enterWorldLock())) {
+    // world-locked with ARCore
   } else {
     // Pin to the room using the motion sensor (permission prompt on iOS must
     // come from this tap). Without a sensor it stays pinned to the screen.
@@ -194,6 +214,61 @@ $('btnLock').addEventListener('click', async () => {
   updateLockButton();
   updateHud();
 });
+
+let lockBusy = false;
+
+/**
+ * Switch to world-lock AR (WebXR + ARCore): the content gets pinned to the
+ * person's spot in the room and stays there as the phone moves. Returns false
+ * (and restores the normal camera) if the phone can't do it.
+ */
+async function enterWorldLock() {
+  lockBusy = true;
+  // ARCore needs the camera: release it (keep the mic for recording).
+  camera.stopVideo();
+  ar.enterXR();
+  xrLock = new WorldLockXR({
+    ar,
+    tracker,
+    getSettings: () => settings,
+    onAfterFrame: takePhotoIfRequested,
+    onEnd: (reason) => exitWorldLock(reason),
+  });
+  try {
+    await xrLock.start();
+    toast('AR lock: placing the text at the person… then move freely', 3500);
+    return true;
+  } catch (err) {
+    console.warn('World-lock AR unavailable, using sensor lock', err);
+    xrLock = null;
+    ar.exitXR();
+    await restoreCamera();
+    toast('AR world lock not available on this phone: using motion-sensor lock', 3500);
+    return false;
+  } finally {
+    lockBusy = false;
+    updateLockButton();
+  }
+}
+
+async function exitWorldLock(reason) {
+  xrLock = null;
+  ar.exitXR();
+  await restoreCamera();
+  toast(reason || 'Unlocked: text follows the body again', reason ? 4000 : 2600);
+  updateLockButton();
+  updateHud();
+}
+
+async function restoreCamera() {
+  try {
+    await camera.start(camera.facing === 'user' ? 'user' : 'environment', settings.mic);
+    ar.setVideo(camera.video);
+    ar.setMirrored(camera.mirrored);
+  } catch (err) {
+    toast(`Camera restart failed: ${err.message}`);
+  }
+}
 
 /* ------------------------------ recording ------------------------------ */
 
@@ -266,6 +341,7 @@ $('btnCloseResult').addEventListener('click', () => {
 
 $('btnFlip').addEventListener('click', async () => {
   if (recorder?.isRecording) return;
+  if (ar?.xr) return void toast('Unlock first to switch cameras');
   try {
     await camera.flip(settings.mic);
     ar.setVideo(camera.video);
@@ -350,7 +426,7 @@ async function onSettingChange(el) {
     return;
   }
   if (key === 'mic') {
-    if (recorder?.isRecording) return;
+    if (recorder?.isRecording || ar.xr) return; // applies on the next camera start
     await camera.start(camera.facing, value);
     ar.setVideo(camera.video);
     return;

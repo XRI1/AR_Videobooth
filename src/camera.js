@@ -64,6 +64,11 @@ export class Camera {
     await this.start(this.facing === 'user' ? 'environment' : 'user', withAudio);
   }
 
+  /** Release the camera but keep the microphone (AR mode needs the camera). */
+  stopVideo() {
+    this.stream?.getVideoTracks().forEach((t) => t.stop());
+  }
+
   stop() {
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;

@@ -147,7 +147,12 @@ export class ARScene {
     // Content
     this.rings = {}; // ring1, ring2, badge
     this.glitter = null;
-    this.fx = new FireworksFX(this.scene);
+    // All AR content lives under this root. Normally it is identity (content
+    // is in camera space). In world-lock AR mode it pins the content to a
+    // real spot in the room.
+    this.root = new THREE.Group();
+    this.scene.add(this.root);
+    this.fx = new FireworksFX(this.root);
     this.time = 0;
 
     // Person anchor (world space, smoothed)
@@ -230,6 +235,7 @@ export class ARScene {
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, true);
     this.camera.aspect = w / h;
+    if (this.xr) return; // AR mode: ARCore supplies projection; scales set at placement
     this.camera.updateProjectionMatrix();
     // world-size -> pixel-size factor for point sprites
     const buf = this.renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -443,7 +449,7 @@ export class ARScene {
       ring.speed = c.speed;
       ring.height = c.height;
       this.rings[key] = ring;
-      this.scene.add(ring.outer);
+      this.root.add(ring.outer);
     }
 
     if (settings.badge.enabled) {
@@ -461,7 +467,7 @@ export class ARScene {
       b.height = settings.badge.height;
       b.ownsTexture = !logo;
       this.rings.badge = b;
-      this.scene.add(b.outer);
+      this.root.add(b.outer);
     }
 
     for (const [k, r] of Object.entries(this.rings)) r.spin = prevSpin[k] ?? 0;
@@ -480,8 +486,12 @@ export class ARScene {
 
   update(dt, { pose, poseVersion, poseTime, settings, gyro }) {
     this.time += dt;
-    this._updateUvTransform();
-    this._updateAnchor(dt, pose, poseVersion, poseTime);
+    const inXR = !!this.xr;
+    if (!inXR) {
+      this._updateUvTransform();
+      this._updateAnchor(dt, pose, poseVersion, poseTime);
+    }
+    // (in world-lock AR mode the anchor is fixed in the room: no re-tracking)
     const a = this.anchor;
     const appear = this.appearScale;
     const visible = this._appearT > 0;
@@ -489,20 +499,21 @@ export class ARScene {
     // Rotations are eased toward their targets (no sensor jitter, no snaps;
     // shortest way round so unlocking glides back to the front).
     const turn = damp(TURN_RATE, dt);
-    const lockedYaw = this._yawFilter.filter(this._lockedYaw(gyro, settings), this.time);
+    // (in world-lock AR mode ARCore moves the camera, so no sensor rotation)
+    const lockedYaw = inXR ? 0 : this._yawFilter.filter(this._lockedYaw(gyro, settings), this.time);
     this._staticYaw += wrapAngle(lockedYaw - this._staticYaw) * turn;
-    const orbitTarget = this.locked ? lockedYaw : gyro?.enabled ? (settings.invertGyro ? 1 : -1) * gyro.yaw : 0;
+    const orbitTarget = inXR ? 0 : this.locked ? lockedYaw : gyro?.enabled ? (settings.invertGyro ? 1 : -1) * gyro.yaw : 0;
     this._orbitYaw += wrapAngle(orbitTarget - this._orbitYaw) * turn;
     const pitchTilt = gyro?.enabled ? -gyro.pitch : 0;
     const tilt = THREE.MathUtils.clamp(settings.tilt + pitchTilt, -0.9, 1.2);
     // while locked, looking down on the person shows the content from above
     const staticTiltTarget =
-      this.locked && gyro?.available
+      this.locked && !inXR && gyro?.available
         ? THREE.MathUtils.clamp(settings.tilt - (gyro.pitch - this.lockPitch), -0.9, 1.2)
         : settings.tilt;
     this._staticTilt += (this._tiltFilter.filter(staticTiltTarget, this.time) - this._staticTilt) * turn;
 
-    const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
+    const tanHalf = inXR ? this.xr.tanHalf ?? 0.6 : Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
     for (const ring of Object.values(this.rings)) {
       ring.outer.visible = visible;
       ring.outer.position.copy(a.hip).addScaledVector(a.up, ring.height * a.S);
@@ -532,7 +543,8 @@ export class ARScene {
 
     if (this.glitter) {
       this.glitter.material.uniforms.uTime.value = this.time;
-      this.glitter.material.uniforms.uScale.value = this.pointScale * this.rings.ring1.outer.scale.x;
+      this.glitter.material.uniforms.uScale.value =
+        this.pointScale * this.root.scale.x * this.rings.ring1.outer.scale.x;
     }
 
     // Effects only run once content is showing (bursts already in the air
@@ -544,16 +556,31 @@ export class ARScene {
     });
 
     // Clip plane through the body axis, facing the camera.
-    const n = this.clipNormal.copy(a.hip).normalize(); // camera is at the origin
-    n.addScaledVector(a.up, -n.dot(a.up)).normalize();
-    this.clipPlane.setFromNormalAndCoplanarPoint(n, a.hip);
+    if (inXR) {
+      // world space: vertical plane through the pinned person spot
+      const hipW = this.root.localToWorld(_v1.copy(a.hip));
+      const n = this.clipNormal.copy(hipW).sub(this.camera.position).setY(0).normalize();
+      this.clipPlane.setFromNormalAndCoplanarPoint(n, hipW);
+    } else {
+      const n = this.clipNormal.copy(a.hip).normalize(); // camera is at the origin
+      n.addScaledVector(a.up, -n.dot(a.up)).normalize();
+      this.clipPlane.setFromNormalAndCoplanarPoint(n, a.hip);
+    }
   }
 
   render(occlusion = true) {
+    this.renderBackground();
+    this.renderContent(occlusion);
+  }
+
+  renderBackground() {
+    this.renderer.clear();
+    this.renderer.render(this.bgScene, this.quadCam);
+  }
+
+  renderContent(occlusion = true) {
     const r = this.renderer;
     const cam = this.camera;
-    r.clear();
-    r.render(this.bgScene, this.quadCam);
 
     // back half (far side of the plane) + background fireworks
     cam.layers.set(0);
@@ -574,4 +601,153 @@ export class ARScene {
   salvo() {
     this.fx.salvo(this.anchor);
   }
+
+  /* ----------------------- world-lock AR (WebXR) ----------------------- */
+  //
+  // In this mode ARCore tracks the phone in the room. The content keeps its
+  // usual layout (built in "camera space" around the person) but sits under
+  // `root`, which pins that layout to the real spot where the person stood at
+  // lock time. The camera image comes from WebXR camera-access and everything
+  // is still composited on our canvas, so recording works unchanged.
+
+  enterXR() {
+    this.xr = { placed: false };
+    this.locked = true;
+    this.root.visible = false; // until placed in the room
+    this.camTex ??= new THREE.ExternalTexture(null);
+    this.bgMat.uniforms.map.value = this.camTex;
+    this.personMat.uniforms.map.value = this.camTex;
+    this.uvXform.set(1, 1, 0, 0); // camera image is aligned with the view
+    this.mirror.value = 0;
+    this.camera.matrixAutoUpdate = true;
+  }
+
+  exitXR() {
+    this.xr = null;
+    this.locked = false;
+    this.root.position.set(0, 0, 0);
+    this.root.quaternion.identity();
+    this.root.scale.setScalar(1);
+    this.root.visible = true;
+    this.camera.position.set(0, 0, 0);
+    this.camera.quaternion.identity();
+    this.anchor.found = false; // re-acquire the person from scratch
+    this._appearT = 0;
+    this.resize(); // restores the virtual projection, point scales, frustum
+  }
+
+  /** Per XR frame: camera pose/projection from ARCore + the camera image. */
+  setXRView(view, cameraTexture) {
+    const cam = this.camera;
+    const { position: p, orientation: q } = view.transform;
+    cam.position.set(p.x, p.y, p.z);
+    cam.quaternion.set(q.x, q.y, q.z, q.w);
+    cam.projectionMatrix.fromArray(view.projectionMatrix);
+    cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
+    cam.updateMatrixWorld(true);
+    this.camTex.sourceTexture = cameraTexture;
+  }
+
+  /**
+   * From a pose detected in the AR camera image: where the person is, as a
+   * ray direction for the feet (for a floor hit test) and the placement data.
+   * Returns null if the body isn't visible enough.
+   */
+  measurePersonForXR(pose, view) {
+    this.uvXform.set(1, 1, 0, 0);
+    this.mirror.value = 0;
+    if (!pose || !this._computeTarget(pose)) return null;
+    const t = this._target;
+    const m = view.projectionMatrix;
+    const P0 = m[0], P5 = m[5], P8 = m[8], P9 = m[9];
+    // virtual camera-space target -> screen NDC -> real camera space at depth 4
+    const halfH = DEPTH * Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
+    const halfW = halfH * this.camera.aspect;
+    const ndcX = t.hip.x / halfW;
+    const ndcY = t.hip.y / halfH;
+    const ndcFeet = t.feetY / halfH;
+    return {
+      hipCam: new THREE.Vector3(((ndcX + P8) * DEPTH) / P0, ((ndcY + P9) * DEPTH) / P5, -DEPTH),
+      S: ((t.S / halfH) * DEPTH) / P5, // torso length in the same units
+      feetY: ((ndcFeet + P9) * DEPTH) / P5,
+      feetDir: { x: (ndcX + P8) / P0, y: (ndcFeet + P9) / P5, z: -1 }, // viewer space
+      tanHalf: 1 / P5,
+    };
+  }
+
+  /**
+   * Pin the layout in the room. `floorPoint` (world, from a hit test at the
+   * person's feet) gives the exact distance; otherwise it's estimated from
+   * the person's torso size.
+   */
+  placeInWorld(measure, floorPoint) {
+    const cam = this.camera;
+    const camQ = cam.quaternion.clone();
+    // gravity-aligned frame: camera position + heading only (no pitch/roll)
+    const fwd = _v1.set(0, 0, -1).applyQuaternion(camQ);
+    const yawQ = new THREE.Quaternion().setFromAxisAngle(_yAxis, Math.atan2(-fwd.x, -fwd.z));
+    const rel = yawQ.clone().invert().multiply(camQ);
+
+    let metresPerUnit = TORSO_METRES / measure.S;
+    if (floorPoint) {
+      // The feet ray passes through the ankles (~8 cm up), so it meets the
+      // floor slightly behind the person: step back along it to ankle height.
+      const C = cam.position;
+      const d = _v2.copy(floorPoint).sub(C);
+      const back = d.y < -1e-3 ? (floorPoint.y + ANKLE_HEIGHT - C.y) / d.y : 1;
+      const ankle = _v3.copy(C).addScaledVector(d, THREE.MathUtils.clamp(back, 0, 1));
+      // Distance along the hip ray whose ground position is above the ankles
+      // (horizontal match; immune to the phone being tilted down).
+      const w = _v1.copy(measure.hipCam).normalize().applyQuaternion(camQ);
+      const ax = ankle.x - C.x, az = ankle.z - C.z;
+      const wxz = w.x * w.x + w.z * w.z;
+      const s = wxz > 1e-4 ? (ax * w.x + az * w.z) / wxz : 0;
+      if (s > 0.3) metresPerUnit = s / measure.hipCam.length();
+    }
+
+    const a = this.anchor;
+    a.hip.copy(measure.hipCam).applyQuaternion(rel);
+    a.S = measure.S;
+    a.up.set(0, 1, 0);
+    a.roll = 0;
+    a.feetY = floorPoint
+      ? _v2.copy(floorPoint).sub(cam.position).applyQuaternion(yawQ.clone().invert()).y / metresPerUnit
+      : _v3.set(0, measure.feetY, -DEPTH).applyQuaternion(rel).y;
+    a.found = true;
+    this._ang = 0;
+    this._staticYaw = 0;
+    this._orbitYaw = 0;
+    this._staticTilt = 0.12;
+    this._appearT = 0; // pop in at the pinned spot
+    this.appearScale = 0;
+
+    this.root.position.copy(cam.position);
+    this.root.quaternion.copy(yawQ);
+    this.root.scale.setScalar(metresPerUnit);
+    this.root.visible = true;
+
+    // point sprites + firework framing for the real camera
+    const buf = this.renderer.getDrawingBufferSize(_v2d);
+    this.pointScale = (buf.y / 2) / measure.tanHalf;
+    this.fx.setPointScale(this.pointScale * metresPerUnit);
+    this.fx.setView(measure.tanHalf, this.camera.aspect);
+    this.xr.placed = true;
+    this.xr.tanHalf = measure.tanHalf;
+    this.xr.usedFloor = !!floorPoint;
+    this.xr.distance = metresPerUnit * DEPTH;
+  }
+
+  /** Pop-in animation while in AR mode (normal mode does it in _updateAnchor). */
+  updateXRAppear(dt) {
+    this._appearT = Math.min(1, this._appearT + dt / APPEAR_TIME);
+    this.appearScale = easeOutBack(this._appearT);
+  }
 }
+
+const TORSO_METRES = 0.5; // typical hip-to-shoulder length, for distance estimates
+const ANKLE_HEIGHT = 0.08; // ankle landmark height above the floor (m)
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
+const _v2d = new THREE.Vector2();
+const _yAxis = new THREE.Vector3(0, 1, 0);

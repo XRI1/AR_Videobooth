@@ -117,15 +117,24 @@ export class PersonTracker {
     if (video.readyState < 2) return false;
     if (video.currentTime === this.lastVideoTime) return false;
     this.lastVideoTime = video.currentTime;
+    return this.detectSource(video);
+  }
 
+  /**
+   * Run detection on any image source (e.g. the canvas holding the WebXR
+   * camera image). `pose: false` skips body landmarks and makes the mask
+   * independent of them (used once world-lock AR has placed the content).
+   */
+  detectSource(source, { pose = true } = {}) {
     // Timestamps must be strictly increasing.
     const ts = Math.max(performance.now(), this.lastTs + 1);
     this.lastTs = ts;
+    this._maskNeedsPose = pose;
 
     // A single bad frame must never kill the render loop, hence the try/catch.
-    if (this.landmarker) {
+    if (this.landmarker && pose) {
       try {
-        const res = this.landmarker.detectForVideo(video, ts);
+        const res = this.landmarker.detectForVideo(source, ts);
         const lm = res.landmarks?.[0];
         this.pose = lm ? lm.map((p) => ({ x: p.x, y: p.y, v: p.visibility ?? 1 })) : null;
         this.poseVersion = (this.poseVersion ?? 0) + 1; // a fresh sample to filter
@@ -137,10 +146,10 @@ export class PersonTracker {
 
     if (this.segmenter) {
       try {
-        this.segmenter.segmentForVideo(video, ts, (res) => {
+        this.segmenter.segmentForVideo(source, ts, (res) => {
           // Mask textures are only valid inside this callback: draw it now.
           const m = res.confidenceMasks?.[0];
-          if (!m || !this.pose) {
+          if (!m || (this._maskNeedsPose && !this.pose)) {
             this.hasMask = false;
             return;
           }
