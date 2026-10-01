@@ -12,11 +12,21 @@ const NO_CAMERA_FRAMES = 90; // give up if camera-access never delivers images
 
 export class WorldLockXR {
   static async isSupported() {
+    return (await WorldLockXR.diagnose()).ok;
+  }
+
+  /** Why world-lock AR can or can't run here, in plain words. */
+  static async diagnose() {
+    if (!window.isSecureContext) return { ok: false, reason: 'page is not opened over https://' };
+    if (!navigator.xr) return { ok: false, reason: 'this browser has no WebXR (use Chrome on Android)' };
     try {
-      return !!navigator.xr && (await navigator.xr.isSessionSupported('immersive-ar'));
-    } catch {
-      return false;
+      if (!(await navigator.xr.isSessionSupported('immersive-ar'))) {
+        return { ok: false, reason: 'AR not supported: install/update "Google Play Services for AR"' };
+      }
+    } catch (err) {
+      return { ok: false, reason: `AR check failed (${err.message})` };
     }
+    return { ok: true, reason: 'AR supported' };
   }
 
   /**

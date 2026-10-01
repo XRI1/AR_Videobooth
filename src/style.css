@@ -152,6 +152,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 input[type="color"] { width: 44px; height: 32px; border: 0; background: none; padding: 0; }
 input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
 input[type="file"] { width: 100%; margin-top: 6px; color: var(--muted); }
+.ar-check { margin: 6px 0 0; font-size: 12px; line-height: 1.4; }
 fieldset .btn-ghost { margin-top: 10px; font-size: 13px; padding: 8px 14px; }
 
 /* ---------- result ---------- */

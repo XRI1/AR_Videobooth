@@ -10,6 +10,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
+const APP_VERSION = '1.4 (AR world lock)'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -155,7 +156,7 @@ function updateHud() {
     // Live orbit angle, so it's obvious whether the motion sensor is working.
     const deg = ((Math.round(THREE.MathUtils.radToDeg(gyro.yaw - ar.lockYaw)) % 360) + 360) % 360;
     pill.className = `pill ${gyro.available ? 'ok' : 'warn'}`;
-    pill.textContent = gyro.available ? `Locked · ${deg}°` : 'Locked · no sensor';
+    pill.textContent = gyro.available ? `Sensor lock · ${deg}°` : 'Sensor lock · no sensor';
     return;
   }
   const found = tracker.hasPerson;
@@ -187,7 +188,7 @@ $('btnLock').addEventListener('click', async () => {
   if (ar.locked) {
     ar.setLocked(false);
     toast('Unlocked: text follows the body again');
-  } else if (camera.facing !== 'file' && (await WorldLockXR.isSupported()) && (await enterWorldLock())) {
+  } else if (await tryWorldLock()) {
     // world-locked with ARCore
   } else {
     // Pin to the room using the motion sensor (permission prompt on iOS must
@@ -199,12 +200,13 @@ $('btnLock').addEventListener('click', async () => {
       sensor = false;
     }
     ar.setLocked(true, gyro);
+    // Say why true AR lock wasn't used, so it can be fixed.
     toast(
-      sensor
-        ? 'Locked: walk around the person, the text stays facing the same way in the room'
-        : 'Locked, but motion sensor is blocked: the text will keep facing the camera',
-      4000,
+      `Sensor lock only. AR lock unavailable: ${arIssue}.` +
+        (sensor ? '' : ' Motion sensor blocked too: text keeps facing the camera.'),
+      7000,
     );
+    updateArCheck();
     if (sensor) {
       setTimeout(() => {
         if (ar.locked && !gyro.available) toast('No motion sensor readings: the text will keep facing the camera', 4000);
@@ -216,6 +218,31 @@ $('btnLock').addEventListener('click', async () => {
 });
 
 let lockBusy = false;
+let arIssue = 'not checked yet'; // why world-lock AR last failed (shown to the user)
+
+async function tryWorldLock() {
+  if (camera.facing === 'file') {
+    arIssue = 'not available with a video file';
+    return false;
+  }
+  const check = await WorldLockXR.diagnose();
+  if (!check.ok) {
+    arIssue = check.reason;
+    return false;
+  }
+  return enterWorldLock();
+}
+
+async function updateArCheck() {
+  const el = $('arCheck');
+  if (!el) return;
+  const check = await WorldLockXR.diagnose();
+  el.textContent =
+    `Version ${APP_VERSION} · ` +
+    (check.ok
+      ? `AR world lock: supported${arIssue !== 'not checked yet' ? ` (last attempt failed: ${arIssue})` : ''}`
+      : `AR world lock: unavailable (${check.reason})`);
+}
 
 /**
  * Switch to world-lock AR (WebXR + ARCore): the content gets pinned to the
@@ -240,15 +267,23 @@ async function enterWorldLock() {
     return true;
   } catch (err) {
     console.warn('World-lock AR unavailable, using sensor lock', err);
+    arIssue = describeXrError(err);
     xrLock = null;
     ar.exitXR();
     await restoreCamera();
-    toast('AR world lock not available on this phone: using motion-sensor lock', 3500);
     return false;
   } finally {
     lockBusy = false;
     updateLockButton();
   }
+}
+
+function describeXrError(err) {
+  const msg = `${err?.name ?? ''} ${err?.message ?? err}`.trim();
+  if (/camera-access/i.test(msg)) return `Chrome refused camera access in AR (${msg})`;
+  if (/NotSupported/i.test(msg)) return `AR session not supported (${msg})`;
+  if (/Security|activation|gesture/i.test(msg)) return `AR needs a direct tap (${msg})`;
+  return msg || 'unknown error';
 }
 
 async function exitWorldLock(reason) {
@@ -379,7 +414,11 @@ $('btnGyro').addEventListener('click', async () => {
 /* ------------------------------ settings UI ------------------------------ */
 
 const drawer = $('settings');
-$('btnSettings').addEventListener('click', () => drawer.classList.toggle('open'));
+$('btnSettings').addEventListener('click', () => {
+  drawer.classList.toggle('open');
+  updateArCheck();
+});
+updateArCheck();
 $('btnCloseSettings').addEventListener('click', () => drawer.classList.remove('open'));
 
 const inputs = [...document.querySelectorAll('[data-key]')];
