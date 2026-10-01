@@ -24,6 +24,7 @@ const MASK_MODELS = {
   hq: { path: `${BASE}models/selfie_multiclass_256x256.tflite`, personIsBackgroundInverse: true },
 };
 const MASK_MAX_EDGE = 384; // mask canvas resolution (it is feathered anyway)
+const MASK_BLEND = 0.65; // weight of the newest mask vs. the previous (temporal smoothing)
 // Opaque colours: confidence ends up in .r with alpha 1, so premultiplied
 // alpha can't distort it when the canvas is uploaded as a texture.
 const BLACK = [0, 0, 0, 255];
@@ -127,6 +128,8 @@ export class PersonTracker {
         const res = this.landmarker.detectForVideo(video, ts);
         const lm = res.landmarks?.[0];
         this.pose = lm ? lm.map((p) => ({ x: p.x, y: p.y, v: p.visibility ?? 1 })) : null;
+        this.poseVersion = (this.poseVersion ?? 0) + 1; // a fresh sample to filter
+        this.poseTime = ts / 1000;
       } catch (err) {
         console.warn('Pose detection failed for a frame', err);
       }
@@ -145,16 +148,22 @@ export class PersonTracker {
           const w = Math.max(1, Math.round(m.width * s));
           const h = Math.max(1, Math.round(m.height * s));
           const out = this.maskCanvas;
+          let fresh = !this.hasMask;
           if (out.width !== w || out.height !== h) {
             out.width = w;
             out.height = h;
+            fresh = true;
           }
           // Draw at MediaPipe's own canvas size (it manages that canvas; resizing
           // it breaks drawing), then downscale while copying into our canvas.
           // The copy must happen now: MediaPipe reuses its canvas afterwards.
           if (this.maskCfg.personIsBackgroundInverse) this.drawer.drawConfidenceMask(m, WHITE, BLACK);
           else this.drawer.drawConfidenceMask(m, BLACK, WHITE);
+          // Blend over the previous mask (temporal smoothing): steadier body
+          // edges with no flicker, at the cost of a very slight trail.
+          this.maskCtx.globalAlpha = fresh ? 1 : MASK_BLEND;
           this.maskCtx.drawImage(this.glCanvas, 0, 0, w, h);
+          this.maskCtx.globalAlpha = 1;
           this.hasMask = true;
           this.maskVersion++;
         });

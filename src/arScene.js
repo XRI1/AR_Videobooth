@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createTextRing, createBadgeRing, createGlitter, makeBadgeTexture, faceCamera } from './rings.js';
 import { FireworksFX } from './fireworks.js';
+import { OneEuroFilter, damp, wrapAngle, easeOutBack } from './filters.js';
 
 // Virtual camera FOV. Narrower than a real phone lens (~63°) on purpose: it
 // pushes the virtual person further away, which softens perspective so the
@@ -22,6 +23,10 @@ import { FireworksFX } from './fireworks.js';
 const FOV = 45;
 const DEPTH = 4; // virtual distance of the person from the camera
 const MAX_RENDER_EDGE = 1920;
+const GLIDE_RATE = 22; // per-frame follow speed toward the filtered pose (1/s)
+const LOST_AFTER = 1.2; // seconds without a person before content hides
+const APPEAR_TIME = 0.55; // seconds for the pop-in / shrink-out animation
+const TURN_RATE = 12; // smoothing of lock / gyro rotations (1/s)
 
 const quadVert = /* glsl */ `
   varying vec2 vUv;
@@ -151,7 +156,26 @@ export class ARScene {
       found: false,
     };
     this._target = { hip: new THREE.Vector3(), up: new THREE.Vector3(), S: 1, feetY: 0 };
-    this._hasTarget = false;
+    // Two-stage smoothing: One Euro filters on each new detection (removes
+    // landmark jitter), then a fast per-frame glide toward the filtered goal
+    // (smooth 60 fps motion between 30 fps detections).
+    this._filters = {
+      x: new OneEuroFilter(1.0, 1.2),
+      y: new OneEuroFilter(1.0, 1.2),
+      S: new OneEuroFilter(0.6, 0.6),
+      feetY: new OneEuroFilter(1.0, 1.0),
+      ang: new OneEuroFilter(0.8, 0.8),
+    };
+    this._goal = { x: 0, y: 0, S: 1, feetY: 0, ang: 0 };
+    this._ang = 0; // smoothed body-axis angle
+    this._lostFor = 0;
+    // Appear/disappear animation (0 = hidden, 1 = shown)
+    this._appearT = 0;
+    this.appearScale = 0;
+    // Smoothed rotations
+    this._staticYaw = 0;
+    this._orbitYaw = 0;
+    this._staticTilt = 0.12;
     this.locked = false; // freeze the anchor in place (Lock button)
     this.lockYaw = 0; // compass heading at lock time
     this.lockPitch = 0;
@@ -281,6 +305,8 @@ export class ARScene {
     this.lockYaw = gyro?.yaw ?? 0;
     this.lockPitch = gyro?.pitch ?? 0;
     this._lockBaseline = !!gyro?.available;
+    // Unlocking glides the content back to the front by the shortest way.
+    if (!locked) this._staticYaw = wrapAngle(this._staticYaw);
   }
 
   /** Rotation (rad) to apply to locked content about the person's axis. */
@@ -295,32 +321,61 @@ export class ARScene {
     return (settings.invertGyro ? 1 : -1) * (gyro.yaw - this.lockYaw);
   }
 
-  _updateAnchor(dt, pose) {
+  _updateAnchor(dt, pose, poseVersion, poseTime) {
     const a = this.anchor;
-    const got = pose && this._computeTarget(pose);
-    if (got) {
+    const g = this._goal;
+    const fresh = poseVersion !== this._poseVersion; // a new detection arrived
+    this._poseVersion = poseVersion;
+
+    if (fresh && pose && this._computeTarget(pose)) {
       const t = this._target;
-      const k = a.found ? 1 - Math.exp(-dt * 12) : 1; // snap on first lock
-      a.hip.lerp(t.hip, k);
-      a.up.lerp(t.up, k).normalize();
-      a.S += (t.S - a.S) * k;
-      a.feetY += (t.feetY - a.feetY) * k;
+      const f = this._filters;
+      const reacquired = !a.found || this._lostFor > LOST_AFTER;
+      if (reacquired) Object.values(f).forEach((x) => x.reset());
+      g.x = f.x.filter(t.hip.x, poseTime);
+      g.y = f.y.filter(t.hip.y, poseTime);
+      g.S = f.S.filter(t.S, poseTime);
+      g.feetY = f.feetY.filter(t.feetY, poseTime);
+      g.ang = f.ang.filter(Math.atan2(t.up.x, t.up.y), poseTime);
+      if (reacquired) {
+        // jump straight to the person (the appear animation hides the jump)
+        a.hip.set(g.x, g.y, -DEPTH);
+        a.S = g.S;
+        a.feetY = g.feetY;
+        this._ang = g.ang;
+      }
       a.found = true;
       this._lostFor = 0;
+    } else if (fresh || !pose) {
+      this._lostFor += dt;
+    }
+
+    if (a.found) {
+      // glide toward the filtered goal every frame (60 fps between detections)
+      const k = damp(GLIDE_RATE, dt);
+      a.hip.x += (g.x - a.hip.x) * k;
+      a.hip.y += (g.y - a.hip.y) * k;
+      a.S += (g.S - a.S) * k;
+      a.feetY += (g.feetY - a.feetY) * k;
+      this._ang += (g.ang - this._ang) * k;
+      a.up.set(Math.sin(this._ang), Math.cos(this._ang), 0);
     } else {
-      this._lostFor = (this._lostFor ?? 0) + dt;
-      if (!a.found) {
-        // Default placement before anyone is detected: centre of the screen.
-        const halfH = DEPTH * Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
-        a.hip.set(0, -0.15 * halfH, -DEPTH);
-        a.S = halfH * 0.35;
-        a.feetY = a.hip.y - 1.8 * a.S;
-        a.up.set(0, 1, 0);
-      }
+      // Default placement before anyone is detected: centre of the screen.
+      const halfH = DEPTH * Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
+      a.hip.set(0, -0.15 * halfH, -DEPTH);
+      a.S = halfH * 0.35;
+      a.feetY = a.hip.y - 1.8 * a.S;
+      a.up.set(0, 1, 0);
     }
     // body lean / phone roll -> ring roll, kept modest (frozen while locked
     // so the content no longer sways with the body)
-    if (!this.locked) a.roll = THREE.MathUtils.clamp(Math.atan2(-a.up.x, a.up.y), -0.6, 0.6);
+    if (!this.locked) a.roll = THREE.MathUtils.clamp(-this._ang, -0.6, 0.6);
+
+    // Pop in when a person is found; shrink away if they leave the frame
+    // (locked content stays).
+    const show = a.found && (this.locked || this._lostFor < LOST_AFTER);
+    this._appearT = THREE.MathUtils.clamp(this._appearT + (show ? dt : -dt) / APPEAR_TIME, 0, 1);
+    this.appearScale = show ? easeOutBack(this._appearT) : this._appearT * this._appearT;
   }
 
   /* ----------------------------- content ----------------------------- */
@@ -390,24 +445,33 @@ export class ARScene {
 
   /* ------------------------------ frame ------------------------------ */
 
-  update(dt, { pose, settings, gyro }) {
+  update(dt, { pose, poseVersion, poseTime, settings, gyro }) {
     this.time += dt;
     this._updateUvTransform();
-    this._updateAnchor(dt, pose);
+    this._updateAnchor(dt, pose, poseVersion, poseTime);
     const a = this.anchor;
+    const appear = this.appearScale;
+    const visible = this._appearT > 0;
 
+    // Rotations are eased toward their targets (no sensor jitter, no snaps;
+    // shortest way round so unlocking glides back to the front).
+    const turn = damp(TURN_RATE, dt);
     const lockedYaw = this._lockedYaw(gyro, settings);
-    const worldYaw = this.locked ? lockedYaw : gyro?.enabled ? (settings.invertGyro ? 1 : -1) * gyro.yaw : 0;
+    this._staticYaw += wrapAngle(lockedYaw - this._staticYaw) * turn;
+    const orbitTarget = this.locked ? lockedYaw : gyro?.enabled ? (settings.invertGyro ? 1 : -1) * gyro.yaw : 0;
+    this._orbitYaw += wrapAngle(orbitTarget - this._orbitYaw) * turn;
     const pitchTilt = gyro?.enabled ? -gyro.pitch : 0;
     const tilt = THREE.MathUtils.clamp(settings.tilt + pitchTilt, -0.9, 1.2);
     // while locked, looking down on the person shows the content from above
-    const staticTilt =
+    const staticTiltTarget =
       this.locked && gyro?.available
         ? THREE.MathUtils.clamp(settings.tilt - (gyro.pitch - this.lockPitch), -0.9, 1.2)
         : settings.tilt;
+    this._staticTilt += (staticTiltTarget - this._staticTilt) * turn;
 
     const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
     for (const ring of Object.values(this.rings)) {
+      ring.outer.visible = visible;
       ring.outer.position.copy(a.hip).addScaledVector(a.up, ring.height * a.S);
       if (ring.static) {
         // Still content in front of the body: no spin; follows the person.
@@ -419,16 +483,16 @@ export class ARScene {
           const maxWidth = 2 * depth * tanHalf * this.camera.aspect * 0.92;
           scale = Math.min(a.S, maxWidth / ring.width);
         }
-        ring.outer.scale.setScalar(scale);
+        ring.outer.scale.setScalar(scale * appear);
         // Tilt makes the curve read as an arc.
-        ring.outer.rotation.set(staticTilt, 0, a.roll, 'ZXY');
-        ring.inner.rotation.y = lockedYaw;
+        ring.outer.rotation.set(this._staticTilt, 0, a.roll, 'ZXY');
+        ring.inner.rotation.y = this._staticYaw;
         continue;
       }
       ring.spin += ring.speed * ring.direction * dt;
-      ring.outer.scale.setScalar(a.S);
+      ring.outer.scale.setScalar(a.S * appear);
       ring.outer.rotation.set(tilt, 0, a.roll, 'ZXY');
-      ring.inner.rotation.y = ring.spin + worldYaw;
+      ring.inner.rotation.y = ring.spin + this._orbitYaw;
     }
     this.scene.updateMatrixWorld();
     if (this.rings.badge) faceCamera(this.rings.badge, this.camera);
@@ -438,7 +502,13 @@ export class ARScene {
       this.glitter.material.uniforms.uScale.value = this.pointScale * this.rings.ring1.outer.scale.x;
     }
 
-    this.fx.update(dt, a, settings.fx);
+    // Effects only run once content is showing (bursts already in the air
+    // finish naturally).
+    const live = this._appearT > 0.6;
+    this.fx.update(dt, a, {
+      fireworks: settings.fx.fireworks && live,
+      fountains: settings.fx.fountains && live,
+    });
 
     // Clip plane through the body axis, facing the camera.
     const n = this.clipNormal.copy(a.hip).normalize(); // camera is at the origin

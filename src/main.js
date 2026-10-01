@@ -105,7 +105,13 @@ function frame(now) {
 
   tracker.detect(camera.video);
   ar.updateMask(tracker);
-  ar.update(dt, { pose: tracker.pose, settings, gyro });
+  ar.update(dt, {
+    pose: tracker.pose,
+    poseVersion: tracker.poseVersion,
+    poseTime: tracker.poseTime,
+    settings,
+    gyro,
+  });
   ar.render(settings.occlusion);
 
   if (photoRequested) {
