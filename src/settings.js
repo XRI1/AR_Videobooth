@@ -16,7 +16,7 @@ export function defaultSettings() {
       edge: '#ffffff',
       italic: true,
       height: 0.35, // in torso units: 0 = hips, 1 = shoulders
-      radius: 1.05,
+      radius: 1.3, // distance in front of the body (torso units)
       size: 0.3,
       speed: -0.8, // rad/s
     },
@@ -28,7 +28,7 @@ export function defaultSettings() {
       edge: '#fff4c2',
       italic: false,
       height: -1.3,
-      radius: 0.95,
+      radius: 1.15,
       size: 0.17,
       speed: 0.55,
     },
@@ -62,17 +62,19 @@ function merge(base, over) {
   return base;
 }
 
-// Texts that were defaults in earlier versions: if a device still has one of
+// Values that were defaults in earlier versions: if a device still has one of
 // these saved (i.e. it was never customised), move it to the current default.
-const OLD_DEFAULT_TEXTS = {
-  ring1: ['Therap', 'GUT GURDIAN'],
-  ring2: ['CELEBRATING 20 YEARS', 'GUT GURDIAN'],
-  badge: ['20 YEARS'],
+const OLD_DEFAULTS = {
+  'ring1.text': ['Therap', 'GUT GURDIAN'],
+  'ring2.text': ['CELEBRATING 20 YEARS', 'GUT GURDIAN'],
+  'badge.text': ['20 YEARS'],
+  'ring1.radius': [1.05],
+  'ring2.radius': [0.95],
 };
-function migrateTexts(s) {
+function migrateDefaults(s) {
   const d = defaultSettings();
-  for (const [key, olds] of Object.entries(OLD_DEFAULT_TEXTS)) {
-    if (olds.includes(s[key].text)) s[key].text = d[key].text;
+  for (const [path, olds] of Object.entries(OLD_DEFAULTS)) {
+    if (olds.includes(getPath(s, path))) setPath(s, path, getPath(d, path));
   }
 }
 
@@ -81,7 +83,7 @@ export function loadSettings() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) merge(s, JSON.parse(raw));
-    migrateTexts(s);
+    migrateDefaults(s);
   } catch {
     /* storage unavailable: use defaults */
   }

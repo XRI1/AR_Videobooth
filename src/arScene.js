@@ -23,7 +23,7 @@ import { OneEuroFilter, damp, wrapAngle, easeOutBack } from './filters.js';
 const FOV = 45;
 const DEPTH = 4; // virtual distance of the person from the camera
 const MAX_RENDER_EDGE = 1920;
-const GLIDE_RATE = 22; // per-frame follow speed toward the filtered pose (1/s)
+const GLIDE_RATE = 14; // per-frame follow speed toward the filtered pose (1/s)
 const LOST_AFTER = 1.2; // seconds without a person before content hides
 const APPEAR_TIME = 0.55; // seconds for the pop-in / shrink-out animation
 const TURN_RATE = 12; // smoothing of lock / gyro rotations (1/s)
@@ -160,11 +160,11 @@ export class ARScene {
     // landmark jitter), then a fast per-frame glide toward the filtered goal
     // (smooth 60 fps motion between 30 fps detections).
     this._filters = {
-      x: new OneEuroFilter(1.0, 1.2),
-      y: new OneEuroFilter(1.0, 1.2),
-      S: new OneEuroFilter(0.6, 0.6),
-      feetY: new OneEuroFilter(1.0, 1.0),
-      ang: new OneEuroFilter(0.8, 0.8),
+      x: new OneEuroFilter(0.45, 0.8),
+      y: new OneEuroFilter(0.45, 0.8),
+      S: new OneEuroFilter(0.25, 0.3), // size: very steady (no "breathing")
+      feetY: new OneEuroFilter(0.5, 0.8),
+      ang: new OneEuroFilter(0.3, 0.4), // lean: very steady
     };
     this._goal = { x: 0, y: 0, S: 1, feetY: 0, ang: 0 };
     this._ang = 0; // smoothed body-axis angle
