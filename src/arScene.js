@@ -24,6 +24,10 @@ const FOV = 45;
 const DEPTH = 4; // virtual distance of the person from the camera
 const MAX_RENDER_EDGE = 1920;
 const GLIDE_RATE = 14; // per-frame follow speed toward the filtered pose (1/s)
+// One Euro [minCutoff Hz, beta] for the person's screen position: normal, and
+// heavier while locked (orbiting the person makes side-on tracking noisy).
+const POS_FILTER = [0.45, 0.8];
+const LOCKED_POS_FILTER = [0.25, 0.5];
 const LOST_AFTER = 1.2; // seconds without a person before content hides
 const APPEAR_TIME = 0.55; // seconds for the pop-in / shrink-out animation
 const TURN_RATE = 12; // smoothing of lock / gyro rotations (1/s)
@@ -160,8 +164,8 @@ export class ARScene {
     // landmark jitter), then a fast per-frame glide toward the filtered goal
     // (smooth 60 fps motion between 30 fps detections).
     this._filters = {
-      x: new OneEuroFilter(0.45, 0.8),
-      y: new OneEuroFilter(0.45, 0.8),
+      x: new OneEuroFilter(...POS_FILTER),
+      y: new OneEuroFilter(...POS_FILTER),
       S: new OneEuroFilter(0.25, 0.3), // size: very steady (no "breathing")
       feetY: new OneEuroFilter(0.5, 0.8),
       ang: new OneEuroFilter(0.3, 0.4), // lean: very steady
@@ -172,7 +176,10 @@ export class ARScene {
     // Appear/disappear animation (0 = hidden, 1 = shown)
     this._appearT = 0;
     this.appearScale = 0;
-    // Smoothed rotations
+    // Smoothed rotations. The phone sensor shakes with the hand while walking,
+    // so locked rotation/tilt go through One Euro filters too.
+    this._yawFilter = new OneEuroFilter(0.5, 0.8);
+    this._tiltFilter = new OneEuroFilter(0.4, 0.5);
     this._staticYaw = 0;
     this._orbitYaw = 0;
     this._staticTilt = 0.12;
@@ -305,8 +312,27 @@ export class ARScene {
     this.lockYaw = gyro?.yaw ?? 0;
     this.lockPitch = gyro?.pitch ?? 0;
     this._lockBaseline = !!gyro?.available;
+    // Freeze size and lean at lock time. Seen from the side or behind, body
+    // tracking is noisier and reads the person smaller, which would make the
+    // text shrink, shake and change its distance from the body.
+    this._lockS = this.anchor.S;
+    this._lockAng = this._ang;
+    this._lockFeetOffset = this.anchor.feetY - this.anchor.hip.y;
+    const f = this._filters;
+    for (const k of ['x', 'y']) {
+      f[k].minCutoff = locked ? LOCKED_POS_FILTER[0] : POS_FILTER[0];
+      f[k].beta = locked ? LOCKED_POS_FILTER[1] : POS_FILTER[1];
+    }
+    if (!locked) {
+      // resume measuring from the current values (no jump)
+      f.S.reset();
+      f.ang.reset();
+      this._goal.S = this.anchor.S;
+      this._goal.ang = this._ang;
+    }
     // Unlocking glides the content back to the front by the shortest way.
     if (!locked) this._staticYaw = wrapAngle(this._staticYaw);
+    this._yawFilter.reset();
   }
 
   /** Rotation (rad) to apply to locked content about the person's axis. */
@@ -334,9 +360,16 @@ export class ARScene {
       if (reacquired) Object.values(f).forEach((x) => x.reset());
       g.x = f.x.filter(t.hip.x, poseTime);
       g.y = f.y.filter(t.hip.y, poseTime);
-      g.S = f.S.filter(t.S, poseTime);
-      g.feetY = f.feetY.filter(t.feetY, poseTime);
-      g.ang = f.ang.filter(Math.atan2(t.up.x, t.up.y), poseTime);
+      if (this.locked && a.found) {
+        // locked: only the position follows; size, lean and floor stay frozen
+        g.S = this._lockS;
+        g.ang = this._lockAng;
+        g.feetY = g.y + this._lockFeetOffset;
+      } else {
+        g.S = f.S.filter(t.S, poseTime);
+        g.feetY = f.feetY.filter(t.feetY, poseTime);
+        g.ang = f.ang.filter(Math.atan2(t.up.x, t.up.y), poseTime);
+      }
       if (reacquired) {
         // jump straight to the person (the appear animation hides the jump)
         a.hip.set(g.x, g.y, -DEPTH);
@@ -456,7 +489,7 @@ export class ARScene {
     // Rotations are eased toward their targets (no sensor jitter, no snaps;
     // shortest way round so unlocking glides back to the front).
     const turn = damp(TURN_RATE, dt);
-    const lockedYaw = this._lockedYaw(gyro, settings);
+    const lockedYaw = this._yawFilter.filter(this._lockedYaw(gyro, settings), this.time);
     this._staticYaw += wrapAngle(lockedYaw - this._staticYaw) * turn;
     const orbitTarget = this.locked ? lockedYaw : gyro?.enabled ? (settings.invertGyro ? 1 : -1) * gyro.yaw : 0;
     this._orbitYaw += wrapAngle(orbitTarget - this._orbitYaw) * turn;
@@ -467,7 +500,7 @@ export class ARScene {
       this.locked && gyro?.available
         ? THREE.MathUtils.clamp(settings.tilt - (gyro.pitch - this.lockPitch), -0.9, 1.2)
         : settings.tilt;
-    this._staticTilt += (staticTiltTarget - this._staticTilt) * turn;
+    this._staticTilt += (this._tiltFilter.filter(staticTiltTarget, this.time) - this._staticTilt) * turn;
 
     const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
     for (const ring of Object.values(this.rings)) {
