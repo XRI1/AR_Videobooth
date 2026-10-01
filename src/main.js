@@ -10,7 +10,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '1.4 (AR world lock)'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '1.5'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -201,11 +201,8 @@ $('btnLock').addEventListener('click', async () => {
     }
     ar.setLocked(true, gyro);
     // Say why true AR lock wasn't used, so it can be fixed.
-    toast(
-      `Sensor lock only. AR lock unavailable: ${arIssue}.` +
-        (sensor ? '' : ' Motion sensor blocked too: text keeps facing the camera.'),
-      7000,
-    );
+    const why = settings.arLock ? `Sensor lock only. AR lock unavailable: ${arIssue}.` : 'Sensor lock on.';
+    toast(why + (sensor ? '' : ' Motion sensor blocked too: text keeps facing the camera.'), settings.arLock ? 7000 : 3000);
     updateArCheck();
     if (sensor) {
       setTimeout(() => {
@@ -221,6 +218,10 @@ let lockBusy = false;
 let arIssue = 'not checked yet'; // why world-lock AR last failed (shown to the user)
 
 async function tryWorldLock() {
+  if (!settings.arLock) {
+    arIssue = 'turned off in settings';
+    return false;
+  }
   if (camera.facing === 'file') {
     arIssue = 'not available with a video file';
     return false;
@@ -233,15 +234,18 @@ async function tryWorldLock() {
   return enterWorldLock();
 }
 
-async function updateArCheck() {
+// Note: this never probes ARCore itself. Asking Chrome "is AR supported?"
+// starts Google's AR service, which crashes on some phones, so that only
+// happens when the user actually taps Lock.
+function updateArCheck() {
   const el = $('arCheck');
   if (!el) return;
-  const check = await WorldLockXR.diagnose();
-  el.textContent =
-    `Version ${APP_VERSION} · ` +
-    (check.ok
-      ? `AR world lock: supported${arIssue !== 'not checked yet' ? ` (last attempt failed: ${arIssue})` : ''}`
-      : `AR world lock: unavailable (${check.reason})`);
+  let status;
+  if (!settings.arLock) status = 'AR world lock: off (Lock uses the motion sensor)';
+  else if (xrLock?.active) status = 'AR world lock: active';
+  else if (arIssue === 'not checked yet') status = 'AR world lock: on (checked when you tap Lock)';
+  else status = `AR world lock: last attempt failed (${arIssue})`;
+  el.textContent = `Version ${APP_VERSION} · ${status}`;
 }
 
 /**
@@ -452,6 +456,7 @@ async function onSettingChange(el) {
   const ring = ar.rings[group];
   if (ring && prop === 'speed') return void (ring.speed = value);
   if (ring && prop === 'height') return void (ring.height = value);
+  if (key === 'arLock') return void updateArCheck();
   if (['tilt', 'occlusion', 'invertGyro', 'fx.fireworks', 'fx.fountains'].includes(key)) return;
 
   if (key === 'model' || key === 'mask') {

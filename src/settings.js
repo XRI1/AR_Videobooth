@@ -46,6 +46,7 @@ export function defaultSettings() {
     occlusion: true,
     tilt: 0.12,
     invertGyro: false,
+    arLock: true, // Lock uses WebXR/ARCore world lock when available (Android)
     mic: true,
     model: isMobile ? 'lite' : 'full',
     mask: 'fast',

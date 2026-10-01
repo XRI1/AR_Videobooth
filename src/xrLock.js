@@ -11,11 +11,11 @@ const PLACE_TIMEOUT_MS = 1500; // wait this long for a floor hit before estimati
 const NO_CAMERA_FRAMES = 90; // give up if camera-access never delivers images
 
 export class WorldLockXR {
-  static async isSupported() {
-    return (await WorldLockXR.diagnose()).ok;
-  }
-
-  /** Why world-lock AR can or can't run here, in plain words. */
+  /**
+   * Why world-lock AR can or can't run here, in plain words. Only call this
+   * from a user tap: it starts Google's AR service, which crashes on some
+   * phones ("Google Play services keeps stopping").
+   */
   static async diagnose() {
     if (!window.isSecureContext) return { ok: false, reason: 'page is not opened over https://' };
     if (!navigator.xr) return { ok: false, reason: 'this browser has no WebXR (use Chrome on Android)' };
