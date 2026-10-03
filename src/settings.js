@@ -6,7 +6,7 @@ export const isMobile =
 
 const STORAGE_KEY = 'ar360.settings.v1';
 // Bump when a one-time change must reach saved settings (see loadSettings).
-const SETTINGS_REV = 2;
+const SETTINGS_REV = 3;
 
 export function defaultSettings() {
   return {
@@ -36,7 +36,7 @@ export function defaultSettings() {
       speed: 0.55,
     },
     badge: {
-      enabled: true,
+      enabled: false, // "2.0" bubbles: off by default
       text: '2.0',
       mode: 'front', // 'front' = still, fanned out in front; 'orbit' = circles the body
       count: 2,
@@ -93,6 +93,9 @@ export function loadSettings() {
     // the user can change them back afterwards).
     if (saved && (saved.rev ?? 1) < 2) {
       s.ring2.enabled = false; // rev 2: orange second text ring removed
+    }
+    if (saved && (saved.rev ?? 1) < 3) {
+      s.badge.enabled = false; // rev 3: "2.0" bubbles removed
     }
     if (saved && saved.rev !== SETTINGS_REV) {
       s.rev = SETTINGS_REV;

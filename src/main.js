@@ -10,7 +10,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '1.6'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '1.7'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -300,12 +300,18 @@ async function exitWorldLock(reason) {
 }
 
 async function restoreCamera() {
-  try {
-    await camera.start(camera.facing === 'user' ? 'user' : 'environment', settings.mic);
-    ar.setVideo(camera.video);
-    ar.setMirrored(camera.mirrored);
-  } catch (err) {
-    toast(`Camera restart failed: ${err.message}`);
+  const facing = camera.facing === 'user' ? 'user' : 'environment';
+  // ARCore needs a moment to release the camera after the AR session ends.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await new Promise((r) => setTimeout(r, 400 + attempt * 600));
+    try {
+      await camera.start(facing, settings.mic);
+      ar.setVideo(camera.video);
+      ar.setMirrored(camera.mirrored);
+      return;
+    } catch (err) {
+      if (attempt === 2) toast(`Camera restart failed: ${err.message}`);
+    }
   }
 }
 

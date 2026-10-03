@@ -505,15 +505,18 @@ export class ARScene {
     const orbitTarget = inXR ? 0 : this.locked ? lockedYaw : gyro?.enabled ? (settings.invertGyro ? 1 : -1) * gyro.yaw : 0;
     this._orbitYaw += wrapAngle(orbitTarget - this._orbitYaw) * turn;
     const pitchTilt = gyro?.enabled ? -gyro.pitch : 0;
-    const tilt = THREE.MathUtils.clamp(settings.tilt + pitchTilt, -0.9, 1.2);
+    // AR mode: tilt corrected for how far the phone pointed down at lock time
+    const xrTilt = inXR ? (this.xr.tiltOffset ?? 0) : 0;
+    const tilt = THREE.MathUtils.clamp(settings.tilt + pitchTilt + xrTilt, -0.9, 1.2);
     // while locked, looking down on the person shows the content from above
     const staticTiltTarget =
       this.locked && !inXR && gyro?.available
         ? THREE.MathUtils.clamp(settings.tilt - (gyro.pitch - this.lockPitch), -0.9, 1.2)
-        : settings.tilt;
+        : settings.tilt + xrTilt;
     this._staticTilt += (this._tiltFilter.filter(staticTiltTarget, this.time) - this._staticTilt) * turn;
+    this._lastSettingsTilt = settings.tilt;
 
-    const tanHalf = inXR ? this.xr.tanHalf ?? 0.6 : Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
+    const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV) / 2); // layout always uses the virtual lens
     for (const ring of Object.values(this.rings)) {
       ring.outer.visible = visible;
       ring.outer.position.copy(a.hip).addScaledVector(a.up, ring.height * a.S);
@@ -544,7 +547,7 @@ export class ARScene {
     if (this.glitter) {
       this.glitter.material.uniforms.uTime.value = this.time;
       this.glitter.material.uniforms.uScale.value =
-        this.pointScale * this.root.scale.x * this.rings.ring1.outer.scale.x;
+        this.pointScale * this.root.scale.z * this.rings.ring1.outer.scale.x; // sprites scale with depth
     }
 
     // Effects only run once content is showing (bursts already in the air
@@ -569,6 +572,11 @@ export class ARScene {
   }
 
   render(occlusion = true) {
+    if (!this.bgMat.uniforms.map.value) {
+      // no camera image yet (e.g. restarting after AR mode): just clear
+      this.renderer.clear();
+      return;
+    }
     this.renderBackground();
     this.renderContent(occlusion);
   }
@@ -625,6 +633,13 @@ export class ARScene {
   exitXR() {
     this.xr = null;
     this.locked = false;
+    // The ARCore camera texture dies with the session: drawing with it again
+    // can crash Chrome's GPU process ("Aw, Snap"). Draw nothing until the
+    // normal camera is back (setVideo).
+    if (this.camTex) this.camTex.sourceTexture = null;
+    this.bgMat.uniforms.map.value = null;
+    this.personMat.uniforms.map.value = null;
+    this.hasMask = false;
     this.root.position.set(0, 0, 0);
     this.root.quaternion.identity();
     this.root.scale.setScalar(1);
@@ -633,6 +648,8 @@ export class ARScene {
     this.camera.quaternion.identity();
     this.anchor.found = false; // re-acquire the person from scratch
     this._appearT = 0;
+    this._tiltFilter.reset();
+    this._staticTilt = this._lastSettingsTilt ?? 0.12; // undo the AR tilt correction
     this.resize(); // restores the virtual projection, point scales, frustum
   }
 
@@ -660,18 +677,20 @@ export class ARScene {
     const t = this._target;
     const m = view.projectionMatrix;
     const P0 = m[0], P5 = m[5], P8 = m[8], P9 = m[9];
-    // virtual camera-space target -> screen NDC -> real camera space at depth 4
-    const halfH = DEPTH * Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
+    const tanVirtual = Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
+    const halfH = DEPTH * tanVirtual;
     const halfW = halfH * this.camera.aspect;
     const ndcX = t.hip.x / halfW;
-    const ndcY = t.hip.y / halfH;
     const ndcFeet = t.feetY / halfH;
     return {
-      hipCam: new THREE.Vector3(((ndcX + P8) * DEPTH) / P0, ((ndcY + P9) * DEPTH) / P5, -DEPTH),
-      S: ((t.S / halfH) * DEPTH) / P5, // torso length in the same units
-      feetY: ((ndcFeet + P9) * DEPTH) / P5,
+      // the same virtual layout as before locking (so nothing changes size
+      // or shape at the moment of locking)
+      hip: t.hip.clone(),
+      S: t.S,
+      feetY: t.feetY,
+      // the real lens is wider than the virtual one by this factor
+      lens: 1 / P5 / tanVirtual,
       feetDir: { x: (ndcX + P8) / P0, y: (ndcFeet + P9) / P5, z: -1 }, // viewer space
-      tanHalf: 1 / P5,
     };
   }
 
@@ -687,8 +706,20 @@ export class ARScene {
     const fwd = _v1.set(0, 0, -1).applyQuaternion(camQ);
     const yawQ = new THREE.Quaternion().setFromAxisAngle(_yAxis, Math.atan2(-fwd.x, -fwd.z));
     const rel = yawQ.clone().invert().multiply(camQ);
+    const c = measure.lens;
 
-    let metresPerUnit = TORSO_METRES / measure.S;
+    // The layout keeps its pre-lock (virtual lens) coordinates. Scaling it by
+    // `c` across the view and 1 along depth makes the wider real lens project
+    // it onto exactly the same pixels, so locking changes nothing on screen.
+    const a = this.anchor;
+    // Positions: apply the lens scale in camera axes, then express them in the
+    // level (yaw-only) frame where the root scale applies (D⁻¹·tilt·D).
+    const D = _lensScale.set(c, c, 1);
+    const toLevel = (v) => v.multiply(D).applyQuaternion(rel).divide(D);
+    toLevel(a.hip.copy(measure.hip));
+    const depthUnits = Math.max(0.5, -a.hip.z);
+
+    let metresPerUnit = TORSO_METRES / (measure.S * c); // estimate from torso size
     if (floorPoint) {
       // The feet ray passes through the ankles (~8 cm up), so it meets the
       // floor slightly behind the person: step back along it to ankle height.
@@ -696,45 +727,38 @@ export class ARScene {
       const d = _v2.copy(floorPoint).sub(C);
       const back = d.y < -1e-3 ? (floorPoint.y + ANKLE_HEIGHT - C.y) / d.y : 1;
       const ankle = _v3.copy(C).addScaledVector(d, THREE.MathUtils.clamp(back, 0, 1));
-      // Distance along the hip ray whose ground position is above the ankles
-      // (horizontal match; immune to the phone being tilted down).
-      const w = _v1.copy(measure.hipCam).normalize().applyQuaternion(camQ);
-      const ax = ankle.x - C.x, az = ankle.z - C.z;
-      const wxz = w.x * w.x + w.z * w.z;
-      const s = wxz > 1e-4 ? (ax * w.x + az * w.z) / wxz : 0;
-      if (s > 0.3) metresPerUnit = s / measure.hipCam.length();
+      // person's distance straight ahead (horizontal; immune to phone tilt)
+      const fwdH = _v1.set(fwd.x, 0, fwd.z).normalize();
+      const ahead = (ankle.x - C.x) * fwdH.x + (ankle.z - C.z) * fwdH.z;
+      if (ahead > 0.3) metresPerUnit = ahead / depthUnits;
     }
 
-    const a = this.anchor;
-    a.hip.copy(measure.hipCam).applyQuaternion(rel);
-    a.S = measure.S;
-    a.up.set(0, 1, 0);
-    a.roll = 0;
     a.feetY = floorPoint
-      ? _v2.copy(floorPoint).sub(cam.position).applyQuaternion(yawQ.clone().invert()).y / metresPerUnit
-      : _v3.set(0, measure.feetY, -DEPTH).applyQuaternion(rel).y;
+      ? _v2.copy(floorPoint).sub(cam.position).applyQuaternion(yawQ.clone().invert()).y / (metresPerUnit * c)
+      : toLevel(_v3.set(0, measure.feetY, -DEPTH)).y;
+    a.up.set(0, 1, 0);
     a.found = true;
-    this._ang = 0;
-    this._staticYaw = 0;
-    this._orbitYaw = 0;
-    this._staticTilt = 0.12;
-    this._appearT = 0; // pop in at the pinned spot
-    this.appearScale = 0;
+    // Keep the current look: same lean, turn and pop-in state as before
+    // locking. The tilt is re-expressed in the level frame: it absorbs how far
+    // the phone points down and the lens scale (which would otherwise flatten
+    // the curve's depth), so the text keeps its exact on-screen shape.
+    const T = this._staticTilt;
+    const w = toLevel(_v3.set(0, -Math.sin(T), Math.cos(T)));
+    const levelTilt = Math.atan2(-w.y, w.z);
+    this.xr.tiltOffset = levelTilt - T;
+    this._staticTilt = levelTilt;
+    this._tiltFilter.reset(); // start from the corrected tilt (no drift)
 
     this.root.position.copy(cam.position);
     this.root.quaternion.copy(yawQ);
-    this.root.scale.setScalar(metresPerUnit);
+    this.root.scale.set(metresPerUnit * c, metresPerUnit * c, metresPerUnit);
     this.root.visible = true;
 
-    // point sprites + firework framing for the real camera
-    const buf = this.renderer.getDrawingBufferSize(_v2d);
-    this.pointScale = (buf.y / 2) / measure.tanHalf;
+    // point sprites: their size scales with depth (root z scale)
     this.fx.setPointScale(this.pointScale * metresPerUnit);
-    this.fx.setView(measure.tanHalf, this.camera.aspect);
     this.xr.placed = true;
-    this.xr.tanHalf = measure.tanHalf;
     this.xr.usedFloor = !!floorPoint;
-    this.xr.distance = metresPerUnit * DEPTH;
+    this.xr.distance = metresPerUnit * depthUnits;
   }
 
   /**
@@ -771,5 +795,6 @@ const _v2d = new THREE.Vector2();
 const _m1 = new THREE.Matrix4();
 const _m2 = new THREE.Matrix4();
 const _q1 = new THREE.Quaternion();
+const _lensScale = new THREE.Vector3();
 const ANCHOR_EASE_RATE = 8; // how quickly ARCore anchor corrections are applied (1/s)
 const _yAxis = new THREE.Vector3(0, 1, 0);
