@@ -10,7 +10,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '1.7'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '1.8'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -82,7 +82,7 @@ async function start(file = null) {
     status.textContent = 'Loading 3D text & AI body tracking…';
     const [font] = await Promise.all([loadFont(settings.font), tracker.init(settings.model, settings.mask)]);
     ar.buildContent(settings, font, logo);
-    if (import.meta.env.DEV) window.__app = { ar, tracker, camera, gyro, get settings() { return settings; } };
+    if (import.meta.env.DEV) window.__app = { ar, tracker, camera, gyro, recorder, get settings() { return settings; } };
 
     $('intro').classList.add('hidden');
     $('hud-top').classList.remove('hidden');
@@ -118,7 +118,7 @@ function frame(now) {
       gyro,
     });
     ar.render(settings.occlusion);
-    takePhotoIfRequested();
+    afterFrameDrawn();
   }
 
   if (now - hudTick > 200) {
@@ -126,6 +126,12 @@ function frame(now) {
     updateHud();
     updateLockButton();
   }
+}
+
+/** Runs right after a frame is drawn, while the canvas still holds it. */
+function afterFrameDrawn() {
+  recorder?.captureFrame();
+  takePhotoIfRequested();
 }
 
 function takePhotoIfRequested() {
@@ -262,7 +268,7 @@ async function enterWorldLock() {
     ar,
     tracker,
     getSettings: () => settings,
-    onAfterFrame: takePhotoIfRequested,
+    onAfterFrame: afterFrameDrawn,
     onEnd: (reason) => exitWorldLock(reason),
   });
   try {
@@ -317,17 +323,22 @@ async function restoreCamera() {
 
 /* ------------------------------ recording ------------------------------ */
 
+let recBusy = false;
 $('btnRecord').addEventListener('click', () => {
+  if (recBusy) return;
   if (recorder.isRecording) stopRecording();
   else startRecording();
 });
 
-function startRecording() {
+async function startRecording() {
+  recBusy = true;
   try {
-    recorder.start(settings.mic ? camera.audioTrack : null);
+    await recorder.start(settings.mic ? camera.audioTrack : null);
   } catch (err) {
     toast(err.message);
     return;
+  } finally {
+    recBusy = false;
   }
   // (don't reset the heading while locked: it would snap the text to the front)
   if (gyro.enabled && !ar.locked) gyro.reset();
@@ -337,11 +348,23 @@ function startRecording() {
 }
 
 async function stopRecording() {
+  if (recBusy) return;
+  recBusy = true;
   $('btnRecord').classList.remove('recording');
   document.body.classList.remove('is-recording');
-  const blob = await recorder.stop();
-  if (blob?.size) showResult(blob, 'video');
-  else toast('Recording failed — nothing was captured.');
+  toast('Saving video…', 8000);
+  try {
+    const blob = await recorder.stop();
+    if (blob?.size) {
+      toast('Video saved', 1200);
+      showResult(blob, 'video');
+    } else toast('Recording failed — nothing was captured.');
+  } catch (err) {
+    console.error(err);
+    toast(`Saving the video failed: ${err.message}`);
+  } finally {
+    recBusy = false;
+  }
 }
 
 $('btnPhoto').addEventListener('click', () => (photoRequested = true));

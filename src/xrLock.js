@@ -65,6 +65,7 @@ export class WorldLockXR {
     this.hitTest = session.enabledFeatures ? session.enabledFeatures.includes('hit-test') : !!this.viewerSpace;
     session.addEventListener('end', () => this._ended());
     this._lastT = null;
+    this._ending = false;
     this._noCamera = 0;
     this._placeStart = null;
     this._hitSource = null;
@@ -73,21 +74,42 @@ export class WorldLockXR {
 
   end(reason) {
     this._endReason = reason;
+    // Release AR resources while the session is still alive. Touching an
+    // anchor or hit-test source after the session has ended can crash
+    // Chrome's page process ("Aw, Snap").
+    this._releaseXrResources();
+    this._ending = true; // stop drawing with session objects from now on
     this.session?.end().catch(() => this._ended());
+  }
+
+  _releaseXrResources() {
+    try {
+      this._hitSource?.cancel?.();
+    } catch {
+      /* already gone */
+    }
+    try {
+      this._worldAnchor?.delete?.();
+    } catch {
+      /* already gone */
+    }
+    this._hitSource = null;
+    this._worldAnchor = null;
   }
 
   _ended() {
     if (!this.active) return;
     this.active = false;
-    this._hitSource?.cancel?.();
+    // The session is gone: only drop references, never call into its objects.
     this._hitSource = null;
-    this._worldAnchor?.delete?.();
     this._worldAnchor = null;
+    this.binding = null;
     this.session = null;
     this.onEnd?.(this._endReason);
   }
 
   _onFrame(t, frame) {
+    if (!this.active || this._ending) return; // session is closing: no more frames
     const session = frame.session;
     session.requestAnimationFrame(this._onFrame);
     const pose = frame.getViewerPose(this.refSpace);
@@ -194,7 +216,15 @@ export class WorldLockXR {
     }
     pending
       ?.then((anchor) => {
-        if (!this.active) return anchor.delete?.();
+        if (!this.active) return; // session already gone: never touch its objects
+        if (this._ending) {
+          try {
+            anchor.delete?.(); // session still alive but closing: release now
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
         this._worldAnchor = anchor;
         this.ar.xr.anchored = true;
       })
