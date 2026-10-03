@@ -737,6 +737,24 @@ export class ARScene {
     this.xr.distance = metresPerUnit * DEPTH;
   }
 
+  /**
+   * Keep `root` attached to an ARCore anchor (column-major 4x4 pose). The
+   * offset between anchor and root is captured on the first call; later
+   * anchor corrections are eased in so they never jump.
+   */
+  followAnchor(anchorMatrix, dt) {
+    const anchorM = _m1.fromArray(anchorMatrix);
+    if (!this.xr.anchorOffset) {
+      this.root.updateMatrix();
+      this.xr.anchorOffset = anchorM.clone().invert().multiply(this.root.matrix);
+      return;
+    }
+    _m2.multiplyMatrices(anchorM, this.xr.anchorOffset).decompose(_v1, _q1, _v2);
+    const k = damp(ANCHOR_EASE_RATE, dt);
+    this.root.position.lerp(_v1, k);
+    this.root.quaternion.slerp(_q1, k);
+  }
+
   /** Pop-in animation while in AR mode (normal mode does it in _updateAnchor). */
   updateXRAppear(dt) {
     this._appearT = Math.min(1, this._appearT + dt / APPEAR_TIME);
@@ -750,4 +768,8 @@ const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
 const _v2d = new THREE.Vector2();
+const _m1 = new THREE.Matrix4();
+const _m2 = new THREE.Matrix4();
+const _q1 = new THREE.Quaternion();
+const ANCHOR_EASE_RATE = 8; // how quickly ARCore anchor corrections are applied (1/s)
 const _yAxis = new THREE.Vector3(0, 1, 0);

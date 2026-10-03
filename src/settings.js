@@ -5,9 +5,12 @@ export const isMobile =
   (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform));
 
 const STORAGE_KEY = 'ar360.settings.v1';
+// Bump when a one-time change must reach saved settings (see loadSettings).
+const SETTINGS_REV = 2;
 
 export function defaultSettings() {
   return {
+    rev: SETTINGS_REV,
     ring1: {
       enabled: true,
       text: 'GUT GUARDIAN',
@@ -21,7 +24,7 @@ export function defaultSettings() {
       speed: -0.8, // rad/s
     },
     ring2: {
-      enabled: true,
+      enabled: false, // second (orange) text ring: off by default
       text: 'GUT GUARDIAN',
       mode: 'front', // 'front' = static label in front of the body, 'orbit' = spins around
       color: '#f5b301',
@@ -83,8 +86,18 @@ export function loadSettings() {
   const s = defaultSettings();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) merge(s, JSON.parse(raw));
+    const saved = raw ? JSON.parse(raw) : null;
+    if (saved) merge(s, saved);
     migrateDefaults(s);
+    // One-time changes for settings saved by older versions (applied once;
+    // the user can change them back afterwards).
+    if (saved && (saved.rev ?? 1) < 2) {
+      s.ring2.enabled = false; // rev 2: orange second text ring removed
+    }
+    if (saved && saved.rev !== SETTINGS_REV) {
+      s.rev = SETTINGS_REV;
+      saveSettings(s);
+    }
   } catch {
     /* storage unavailable: use defaults */
   }

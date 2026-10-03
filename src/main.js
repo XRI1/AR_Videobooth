@@ -10,7 +10,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '1.5'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '1.6'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -148,7 +148,7 @@ function updateHud() {
   if (ar.xr) {
     pill.className = `pill ${ar.xr.placed ? 'ok' : 'warn'}`;
     pill.textContent = ar.xr.placed
-      ? `AR locked · ${ar.xr.distance.toFixed(1)} m${ar.xr.usedFloor ? '' : ' (est.)'}`
+      ? `AR locked · ${ar.xr.distance.toFixed(1)} m${ar.xr.usedFloor ? '' : ' (est.)'}${ar.xr.anchored ? ' · anchored' : ''}`
       : 'Placing… keep the person in view';
     return;
   }

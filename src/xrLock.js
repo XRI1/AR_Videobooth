@@ -53,7 +53,7 @@ export class WorldLockXR {
     await gl.makeXRCompatible();
     const session = await navigator.xr.requestSession('immersive-ar', {
       requiredFeatures: ['local', 'camera-access'],
-      optionalFeatures: ['dom-overlay', 'hit-test'],
+      optionalFeatures: ['dom-overlay', 'hit-test', 'anchors'],
       domOverlay: { root: document.body },
     });
     this.session = session;
@@ -81,6 +81,8 @@ export class WorldLockXR {
     this.active = false;
     this._hitSource?.cancel?.();
     this._hitSource = null;
+    this._worldAnchor?.delete?.();
+    this._worldAnchor = null;
     this.session = null;
     this.onEnd?.(this._endReason);
   }
@@ -112,9 +114,16 @@ export class WorldLockXR {
     this.tracker.detectSource(ar.renderer.domElement, { pose: !placed });
     ar.updateMask(this.tracker);
 
-    // 3. pin the content once we know where the person is
+    // 3. pin the content once we know where the person is; afterwards follow
+    // the ARCore anchor, which ARCore keeps correcting as it maps the room
     if (!placed) this._tryPlace(frame, view, t);
-    else ar.updateXRAppear(dt);
+    else {
+      ar.updateXRAppear(dt);
+      if (this._worldAnchor) {
+        const ap = frame.getPose(this._worldAnchor.anchorSpace, this.refSpace);
+        if (ap) ar.followAnchor(ap.transform.matrix, dt);
+      }
+    }
 
     // 4. draw the content (cut-out only once placed)
     ar.update(dt, { settings, gyro: null });
@@ -147,15 +156,48 @@ export class WorldLockXR {
     }
 
     let floor = null;
+    let hit = null;
     if (this._hitSource) {
-      const hit = frame.getHitTestResults(this._hitSource)[0];
+      hit = frame.getHitTestResults(this._hitSource)[0] ?? null;
       const p = hit?.getPose(this.refSpace)?.transform.position;
       if (p) floor = { x: p.x, y: p.y, z: p.z };
     }
     if (floor || t - this._placeStart > PLACE_TIMEOUT_MS) {
       ar.placeInWorld(measure, floor ? new (ar.anchor.hip.constructor)(floor.x, floor.y, floor.z) : null);
+      this._createAnchor(frame, floor ? hit : null);
       this._hitSource?.cancel?.();
       this._hitSource = null;
     }
+  }
+
+  /**
+   * Attach the content to an ARCore anchor: on the floor surface under the
+   * person when we have a floor hit, otherwise at the content's spot. ARCore
+   * refines anchors as it learns the room, which removes slow tracking drift.
+   * Optional: without the 'anchors' feature the content just stays where it
+   * was placed.
+   */
+  _createAnchor(frame, hit) {
+    const r = this.ar.root;
+    let pending = null;
+    try {
+      if (hit?.createAnchor) pending = hit.createAnchor();
+      else if (frame.createAnchor) {
+        const pose = new XRRigidTransform(
+          { x: r.position.x, y: r.position.y, z: r.position.z },
+          { x: r.quaternion.x, y: r.quaternion.y, z: r.quaternion.z, w: r.quaternion.w },
+        );
+        pending = frame.createAnchor(pose, this.refSpace);
+      }
+    } catch (err) {
+      console.warn('Could not create an AR anchor', err);
+    }
+    pending
+      ?.then((anchor) => {
+        if (!this.active) return anchor.delete?.();
+        this._worldAnchor = anchor;
+        this.ar.xr.anchored = true;
+      })
+      .catch((err) => console.warn('AR anchor failed', err));
   }
 }
