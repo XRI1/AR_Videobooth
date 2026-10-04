@@ -577,7 +577,7 @@ export class ARScene {
       o.rotation.set(0, 0, a.roll);
       o.scale.setScalar(a.S * appear);
       this.stream.setFade(L.fadeStart, L.fadeEnd);
-      this.stream.update(dt, this.pointScale * this.root.scale.z * o.scale.x, L.sx, L.sz, this._staticYaw);
+      this.stream.update(dt, L.sx, L.sz, this._staticYaw);
     }
 
     this.scene.updateMatrixWorld();

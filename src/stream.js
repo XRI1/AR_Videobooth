@@ -1,11 +1,12 @@
-// "Light stream" effect: glowing ribbons rise out of a ring on the floor all
-// around the person and revolve upward, carrying glossy glass capsules, cubes
-// and spheres (blue / lime-green, like a probiotic / data-flow visual); it fades
-// out between hip and chest height. The effect itself never spins.
+// 3D object stream: glossy glass capsules, cubes and spheres (blue /
+// lime-green, like a probiotic / data-flow visual) rise out of the floor all
+// around the person and revolve upward along invisible spiral paths, fading
+// out between hip and chest height. Only the 3D objects are drawn; the effect
+// as a whole never spins.
 //
 // Everything is in torso units (scaled with the person by the scene) and uses
-// the scene's clipping plane, so the stream passes behind the body and comes
-// back in front, exactly like the 3D text.
+// the scene's clipping plane, so objects pass behind the body and come back
+// in front, exactly like the 3D text.
 
 import * as THREE from 'three';
 
@@ -16,7 +17,7 @@ const BLUE = srgb('#1557ff');
 const CYAN = srgb('#36c8ff');
 const LIME = srgb('#b6f01e');
 
-/* ------------------------------ shaders ------------------------------ */
+/* ------------------------------ shader ------------------------------ */
 
 // Glossy glass look: deep centre, bright fresnel rim, sharp highlights,
 // optional glowing edges (cubes). Supports instancing + instance colours.
@@ -84,127 +85,20 @@ const glassFrag = /* glsl */ `
   }
 `;
 
-// Glowing ribbon: bright core facing the camera, soft edges, light pulses
-// travelling along it, faded at both ends.
-const ribbonVert = /* glsl */ `
-  #include <common>
-  #include <clipping_planes_pars_vertex>
-  varying vec3 vN;
-  varying vec3 vV;
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    vN = normalize(normalMatrix * normal);
-    vV = -mvPosition.xyz;
-    gl_Position = projectionMatrix * mvPosition;
-    #include <clipping_planes_vertex>
-  }
-`;
-const ribbonFrag = /* glsl */ `
-  #include <clipping_planes_pars_fragment>
-  uniform vec3 uColor;
-  uniform float uTime;
-  uniform float uSpeed;
-  uniform float uPhase;
-  uniform float uOpacity;
-  uniform vec2 uFade; // fade-out window along the stream (start, end)
-  varying vec3 vN;
-  varying vec3 vV;
-  varying vec2 vUv;
-  void main() {
-    #include <clipping_planes_fragment>
-    if (vUv.x > uFade.y) discard;
-    float ndv = abs(dot(normalize(vN), normalize(vV)));
-    float core = pow(ndv, 1.6);
-    float p = fract(vUv.x * 3.0 - uTime * uSpeed + uPhase);
-    float pulse = smoothstep(0.0, 0.04, p) * (1.0 - smoothstep(0.04, 0.28, p));
-    // emerges from the floor, then fades out gradually from halfway up
-    float ends = smoothstep(0.0, 0.03, vUv.x) * (1.0 - smoothstep(uFade.x, uFade.y, vUv.x));
-    vec3 col = uColor * (0.5 + 0.55 * core) + vec3(0.55, 0.9, 1.0) * pulse * core;
-    float a = (0.14 + 0.5 * core) * uOpacity * ends;
-    gl_FragColor = vec4(col, a); // additive blending applies the alpha
-  }
-`;
-
-// Twinkling sparkles along the stream.
-const sparkVert = /* glsl */ `
-  #include <common>
-  #include <clipping_planes_pars_vertex>
-  attribute float aPhase;
-  attribute float aS; // position along the stream (0 = floor)
-  uniform float uTime;
-  uniform float uScale;
-  uniform vec2 uFade;
-  varying float vAlpha;
-  void main() {
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    float tw = 0.5 + 0.5 * sin(uTime * (2.5 + aPhase * 4.0) + aPhase * 50.0);
-    vAlpha = tw * tw * (1.0 - smoothstep(uFade.x, uFade.y, aS));
-    gl_PointSize = clamp(0.07 * uScale * (0.5 + tw) / -mvPosition.z, 0.0, 40.0);
-    gl_Position = projectionMatrix * mvPosition;
-    #include <clipping_planes_vertex>
-  }
-`;
-const sparkFrag = /* glsl */ `
-  #include <clipping_planes_pars_fragment>
-  varying float vAlpha;
-  void main() {
-    #include <clipping_planes_fragment>
-    vec2 c = gl_PointCoord - 0.5;
-    float star = max(0.0, 1.0 - abs(c.x * c.y) * 140.0) * max(0.0, 1.0 - length(c) * 2.0);
-    float core = exp(-dot(c, c) * 70.0);
-    float a = clamp(star + core, 0.0, 1.0) * vAlpha;
-    gl_FragColor = vec4(mix(vec3(0.6, 0.9, 1.0), vec3(1.0), core), a);
-  }
-`;
-
-// Glowing ring on the floor where the stream comes out of the surface:
-// soft halo + bright ring + ripples spreading outwards.
-const portalVert = /* glsl */ `
-  #include <common>
-  #include <clipping_planes_pars_vertex>
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    gl_Position = projectionMatrix * mvPosition;
-    #include <clipping_planes_vertex>
-  }
-`;
-const portalFrag = /* glsl */ `
-  #include <clipping_planes_pars_fragment>
-  uniform float uTime;
-  varying vec2 vUv;
-  void main() {
-    #include <clipping_planes_fragment>
-    float r = length(vUv * 2.0 - 1.0);
-    if (r > 1.0) discard;
-    float ring = exp(-pow((r - 0.78) / 0.05, 2.0));
-    float halo = (1.0 - smoothstep(0.0, 0.95, r)) * 0.22;
-    float wave = fract(r * 1.4 - uTime * 0.45);
-    float ripple = smoothstep(0.0, 0.05, wave) * (1.0 - smoothstep(0.05, 0.3, wave)) * (1.0 - r) * 0.8;
-    float edge = 1.0 - smoothstep(0.85, 1.0, r);
-    float a = clamp((ring + halo + ripple) * edge, 0.0, 1.0);
-    vec3 col = mix(vec3(0.1, 0.45, 1.0), vec3(0.55, 0.95, 1.0), ring);
-    gl_FragColor = vec4(col, a);
-  }
-`;
-
-/* ------------------------------ geometry ------------------------------ */
+/* ------------------------------ paths ------------------------------ */
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const LUT_SIZE = 256;
-const STRAND_COUNT = 9;
+const PATH_COUNT = 9;
 const TURNS = 1.25; // revolutions around the body over the stream's full height
 /** Stream height from the floor (torso units: hips ~1.8 up, chest ~2.4). */
 export const STREAM_HEIGHT = 3.2;
 
 /**
- * One strand of the stream: a curve rising out of the floor and revolving
- * upward around the body axis. Torso units, y = 0 on the floor.
+ * One invisible path: rises out of the floor and revolves upward around the
+ * body axis. Torso units, y = 0 on the floor.
  */
-function makeStrandCurve({ phase, radius, wobble, lift }) {
+function makePathCurve({ phase, radius, wobble, lift }) {
   const pts = [];
   for (let i = 0; i <= 48; i++) {
     const s = i / 48;
@@ -257,84 +151,39 @@ export class LightStream {
    * @param {THREE.Plane[]} o.clippingPlanes
    */
   constructor({ style = 'both', radius = 1.3, clippingPlanes }) {
-    // outer: placed on the floor under the person by the scene (does not spin)
-    //  └ fit: narrows the circle side-to-side only, to fit a portrait frame,
-    //    so the front/back distance from the body stays like the 3D text
-    //     └ inner: turned only by Lock (keeps its facing in the room)
-    //        └ ribbons, sparkles, floor ring
-    //  └ objects: glass capsules/cubes/spheres, positioned in outer space so
-    //    the side-to-side fit never squashes their shape
+    // outer: placed on the floor under the person by the scene (never spins).
+    // Object positions are computed in outer space, so fitting the circle to
+    // the frame never squashes their shape.
     this.outer = new THREE.Group();
-    this.fit = new THREE.Group();
-    this.inner = new THREE.Group();
-    this.ribbons = new THREE.Group();
-    this.objects = new THREE.Group();
-    this.outer.add(this.fit, this.objects);
-    this.fit.add(this.inner);
-    this.inner.add(this.ribbons);
     this.time = 0;
     this.fadeStart = 0.55;
     this.fadeEnd = 0.75;
     this._materials = [];
     this._geometries = [];
 
-    const clip = { clipping: true, clippingPlanes };
-    const fadeUniform = { value: new THREE.Vector2(this.fadeStart, this.fadeEnd) };
-    this._fadeUniform = fadeUniform;
-
-    // --- strands, spread evenly all the way around the body ---
-    const strandDefs = [];
-    for (let i = 0; i < STRAND_COUNT; i++) {
-      const thick = i === 0 || i === Math.round(STRAND_COUNT / 2);
-      strandDefs.push({
-        phase: (i / STRAND_COUNT) * TAU + rand(-0.15, 0.15),
+    // --- invisible paths, spread evenly all the way around the body ---
+    this.paths = [];
+    for (let i = 0; i < PATH_COUNT; i++) {
+      const curve = makePathCurve({
+        phase: (i / PATH_COUNT) * TAU + rand(-0.15, 0.15),
         radius: radius * rand(0.9, 1.08),
         wobble: rand(0.03, 0.08),
         lift: rand(0.03, 0.1),
-        thick: thick ? rand(0.045, 0.06) : rand(0.006, 0.016),
-        color: i % 2 ? CYAN : BLUE,
-        opacity: thick ? 0.9 : rand(0.6, 0.95),
       });
+      this.paths.push(makeLut(curve));
     }
-    this.strands = strandDefs.map((d) => {
-      const curve = makeStrandCurve(d);
-      const geo = new THREE.TubeGeometry(curve, 200, d.thick, 8, false);
-      const mat = new THREE.ShaderMaterial({
-        vertexShader: ribbonVert,
-        fragmentShader: ribbonFrag,
-        uniforms: {
-          uColor: { value: d.color },
-          uTime: { value: 0 },
-          uSpeed: { value: rand(0.25, 0.45) },
-          uPhase: { value: Math.random() },
-          uOpacity: { value: d.opacity },
-          uFade: fadeUniform,
-        },
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        side: THREE.DoubleSide,
-        ...clip,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.frustumCulled = false;
-      this.ribbons.add(mesh);
-      this._materials.push(mat);
-      this._geometries.push(geo);
-      return { lut: makeLut(curve), mat };
-    });
-    // widest / closest horizontal reach of the stream (frame fit, body clearance)
+    // widest / closest horizontal reach (frame fit, body clearance)
     this.maxRadius = 0;
     this.minRadius = Infinity;
-    for (const s of this.strands) {
+    for (const lut of this.paths) {
       for (let i = 0; i < LUT_SIZE; i++) {
-        const r = Math.hypot(s.lut[i * 3], s.lut[i * 3 + 2]);
+        const r = Math.hypot(lut[i * 3], lut[i * 3 + 2]);
         this.maxRadius = Math.max(this.maxRadius, r);
         this.minRadius = Math.min(this.minRadius, r);
       }
     }
 
-    // --- flowing glass objects ---
+    // --- glass objects ---
     const glass = (edges) => {
       const m = new THREE.ShaderMaterial({
         vertexShader: glassVert,
@@ -342,7 +191,8 @@ export class LightStream {
         uniforms: { uEdges: { value: edges } },
         transparent: true,
         side: THREE.DoubleSide,
-        ...clip,
+        clipping: true,
+        clippingPlanes,
       });
       this._materials.push(m);
       return m;
@@ -365,7 +215,7 @@ export class LightStream {
           mesh,
           index: i,
           kind,
-          strand: i % this.strands.length, // spread around the whole circle
+          path: i % this.paths.length, // spread around the whole circle
           s0: Math.random(),
           speed: rand(0.12, 0.2), // floor -> fade-out in ~4-7 s
           size: rand(sizeRange[0], sizeRange[1]),
@@ -375,7 +225,7 @@ export class LightStream {
         });
       }
       mesh.instanceColor.needsUpdate = true;
-      this.objects.add(mesh);
+      this.outer.add(mesh);
     };
 
     const caps = style === 'cubes' ? 0 : style === 'capsules' ? 16 : 10;
@@ -399,61 +249,7 @@ export class LightStream {
       [0.6, 1.5],
     );
 
-    // --- sparkles along the stream (faded with it) ---
-    const n = 110;
-    const pos = new Float32Array(n * 3);
-    const phase = new Float32Array(n);
-    const along = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const st = this.strands[i % this.strands.length];
-      along[i] = Math.random() * 0.95;
-      sampleLut(st.lut, along[i], _p).toArray(pos, i * 3);
-      pos[i * 3] += rand(-0.06, 0.06);
-      pos[i * 3 + 1] += rand(0, 0.06);
-      pos[i * 3 + 2] += rand(-0.06, 0.06);
-      phase[i] = Math.random();
-    }
-    const sg = new THREE.BufferGeometry();
-    sg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    sg.setAttribute('aPhase', new THREE.BufferAttribute(phase, 1));
-    sg.setAttribute('aS', new THREE.BufferAttribute(along, 1));
-    this.sparkMat = new THREE.ShaderMaterial({
-      vertexShader: sparkVert,
-      fragmentShader: sparkFrag,
-      uniforms: { uTime: { value: 0 }, uScale: { value: 1 }, uFade: fadeUniform },
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      ...clip,
-    });
-    const sparks = new THREE.Points(sg, this.sparkMat);
-    sparks.frustumCulled = false;
-    this.ribbons.add(sparks);
-    this._materials.push(this.sparkMat);
-    this._geometries.push(sg);
-
-    // --- glowing ring on the floor the stream rises out of ---
-    const pg = new THREE.PlaneGeometry(2, 2);
-    pg.rotateX(-Math.PI / 2); // lie flat on the floor (y = 0)
-    this.portalMat = new THREE.ShaderMaterial({
-      vertexShader: portalVert,
-      fragmentShader: portalFrag,
-      uniforms: { uTime: { value: 0 } },
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      ...clip,
-    });
-    const portal = new THREE.Mesh(pg, this.portalMat);
-    portal.scale.setScalar(this.maxRadius * 1.12);
-    portal.position.y = 0.01;
-    portal.frustumCulled = false;
-    this.ribbons.add(portal);
-    this._materials.push(this.portalMat);
-    this._geometries.push(pg);
-
-    this.update(0, 1);
+    this.update(0);
   }
 
   /**
@@ -463,35 +259,26 @@ export class LightStream {
   setFade(start, end) {
     this.fadeStart = start;
     this.fadeEnd = Math.max(start + 0.02, end);
-    this._fadeUniform.value.set(this.fadeStart, this.fadeEnd);
   }
 
   /**
    * Advance the animation.
    * @param {number} dt
-   * @param {number} pointScale  screen size factor for sparkles
    * @param {number} sx  side-to-side scale of the circle (fits the frame)
    * @param {number} sz  front/back scale of the circle (matches the text's distance)
-   * @param {number} yaw  facing in the room (Lock); the stream never spins
+   * @param {number} yaw  facing in the room (Lock); the effect never spins
    */
-  update(dt, pointScale, sx = 1, sz = 1, yaw = 0) {
+  update(dt, sx = 1, sz = 1, yaw = 0) {
     this.time += dt;
     const t = this.time;
-    this.fit.scale.set(sx, 1, sz);
-    this.inner.rotation.y = yaw;
-    for (const s of this.strands) s.mat.uniforms.uTime.value = t;
-    this.sparkMat.uniforms.uTime.value = t;
-    this.sparkMat.uniforms.uScale.value = pointScale;
-    this.portalMat.uniforms.uTime.value = t;
-
     _qYaw.setFromAxisAngle(_up, yaw);
     const span = this.fadeEnd + 0.02; // objects only travel the visible part
     const sizeK = 0.7 + 0.3 * Math.min(1, sx, sz); // a bit smaller in a narrowed stream
     const dirty = new Set();
     for (const it of this.items) {
-      // rise from the floor, revolving upward along the strand
+      // rise from the floor, revolving upward along the path
       const s = ((it.s0 + t * it.speed) % 1) * span;
-      const lut = this.strands[it.strand].lut;
+      const lut = this.paths[it.path];
       sampleLut(lut, s, _p).applyQuaternion(_qYaw);
       sampleLut(lut, Math.min(1, s + 0.01), _p2).applyQuaternion(_qYaw);
       _p.x *= sx;
@@ -506,7 +293,7 @@ export class LightStream {
       _p.addScaledVector(it.offset, emerge); // offsets open up as it leaves the floor
       const k = it.size * emerge * (0.7 + 0.3 * fadeOut) * sizeK;
       if (it.kind === 'capsule') {
-        // lie along the stream, rolling slowly
+        // lie along the path, rolling slowly
         _q.setFromUnitVectors(_up, _tan);
         _q2.setFromAxisAngle(_up, t * 0.8 + it.phase);
         _q.multiply(_q2);

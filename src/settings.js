@@ -6,7 +6,7 @@ export const isMobile =
 
 const STORAGE_KEY = 'ar360.settings.v1';
 // Bump when a one-time change must reach saved settings (see loadSettings).
-const SETTINGS_REV = 3;
+const SETTINGS_REV = 4;
 
 export function defaultSettings() {
   return {
@@ -56,7 +56,7 @@ export function defaultSettings() {
     tilt: 0.12,
     invertGyro: false,
     arLock: true, // Lock uses WebXR/ARCore world lock when available (Android)
-    mic: true,
+    mic: false, // record video without sound (no microphone permission needed)
     model: isMobile ? 'lite' : 'full',
     mask: 'fast',
     font: 'helvetiker_bold',
@@ -102,6 +102,9 @@ export function loadSettings() {
     }
     if (saved && (saved.rev ?? 1) < 3) {
       s.badge.enabled = false; // rev 3: "2.0" bubbles removed
+    }
+    if (saved && (saved.rev ?? 1) < 4) {
+      s.mic = false; // rev 4: videos are recorded without audio
     }
     if (saved && saved.rev !== SETTINGS_REV) {
       s.rev = SETTINGS_REV;

@@ -2,7 +2,7 @@
 
 A browser-based AR video booth. Point a phone at a person and curved 3D text, fireworks and sparklers appear around them, with the person correctly cut out so effects can pass behind their body. Press **Lock** to pin everything to a real spot in the room, walk the phone around the person, record, then download or share the video. No app install needed.
 
-Current version: **2.3**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
+Current version: **2.4**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
 
 ## Features
 
@@ -10,9 +10,9 @@ Current version: **2.3**. It's shown at the top of **Settings → Camera & track
 - **Real occlusion.** A person segmentation mask cuts the person out of the video, so anything behind them is hidden by their body.
 - **Smooth body tracking.** Pose tracking keeps the text on the person's torso and scales it with their size. One Euro filtering removes jitter, and the text glides at 60 fps between 30 fps detections. It pops in when a person appears and shrinks away if they leave the frame.
 - **Lock button.** Pins the text and effects in the real room (see below). It uses ARCore surface tracking on supported Android phones and a motion-sensor fallback elsewhere.
-- **3D light stream:** glowing blue ribbons rise out of a glowing ring on the floor all around the person and revolve upward, carrying glossy glass **capsules**, blue and lime-green **cubes** and spheres, with light pulses and sparkles. It keeps the same distance from the body as the 3D text but never comes closer than the body and arms (so no object passes through the person), its layout freezes when you press Lock (no jump), fades out between the person's hips and chest (never reaching the head), and doesn't spin as a whole. It narrows side-to-side if needed to fit the portrait frame, passes behind the body (hidden by the cut-out), and follows Lock like the text. Choose capsules, cubes or both in **Settings → Effects**.
+- **3D objects rising around the person:** glossy glass **capsules**, blue and lime-green **cubes** and spheres rise out of the floor all around the person and revolve upward along invisible spiral paths, then fade out between the hips and chest (never reaching the head). They keep the same distance from the body as the 3D text but never come closer than the body and arms, the layout freezes when you press Lock (no jump), and they pass behind the body (hidden by the cut-out). Choose capsules, cubes or both in **Settings → Effects**.
 - **FX:** fireworks behind the person (rockets, peony, ring and willow bursts), sparkler fountains at their feet, and twinkling glitter.
-- **Recording as MP4:** captures the composited AR canvas plus microphone audio as a standard **MP4 (H.264 video + AAC audio)** that every phone, gallery and messaging app plays. It uses the phone's hardware encoder through WebCodecs plus [mp4-muxer](https://github.com/Vanilagy/mp4-muxer), which works in Chrome on Android, where the built-in recorder only makes WebM. It falls back to the browser's own MP4 recorder (Safari/iOS), and only then to WebM. Also has photo capture, download and native share on phones. Recording keeps running through Lock and Unlock.
+- **Recording as MP4:** captures the composited AR canvas as a standard **MP4 (H.264 video)**. Videos are silent by default (no microphone permission asked); tick **Record sound with the video** in settings to add AAC audio that every phone, gallery and messaging app plays. It uses the phone's hardware encoder through WebCodecs plus [mp4-muxer](https://github.com/Vanilagy/mp4-muxer), which works in Chrome on Android, where the built-in recorder only makes WebM. It falls back to the browser's own MP4 recorder (Safari/iOS), and only then to WebM. Also has photo capture, download and native share on phones. Recording keeps running through Lock and Unlock.
 - **Offline-friendly:** settings are saved per device, and the ML models and runtime are self-hosted, so nothing loads from third-party CDNs at the venue.
 
 ## Run it
@@ -103,7 +103,7 @@ All content lives under one root group. Normally it sits in camera space. In AR 
 | [src/arScene.js](src/arScene.js) | Three.js compositor, body anchoring, clipping, AR placement |
 | [src/xrLock.js](src/xrLock.js) | WebXR/ARCore session: camera image, floor hit-test, anchors |
 | [src/rings.js](src/rings.js) | Curved 3D text, badges, glitter |
-| [src/stream.js](src/stream.js) | 3D light stream: glowing ribbons + flowing glass capsules/cubes |
+| [src/stream.js](src/stream.js) | 3D glass capsules/cubes/spheres rising around the person |
 | [src/fireworks.js](src/fireworks.js) | Particle rockets, bursts, fountains |
 | [src/tracker.js](src/tracker.js) | MediaPipe pose + segmentation |
 | [src/filters.js](src/filters.js) | One Euro filter and easing helpers |
