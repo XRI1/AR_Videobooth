@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createTextRing, createBadgeRing, createGlitter, makeBadgeTexture, faceCamera } from './rings.js';
 import { FireworksFX } from './fireworks.js';
-import { LightStream } from './stream.js';
+import { LightStream, STREAM_HEIGHT } from './stream.js';
 import { OneEuroFilter, damp, wrapAngle, easeOutBack } from './filters.js';
 
 // Virtual camera FOV. Narrower than a real phone lens (~63°) on purpose: it
@@ -32,11 +32,9 @@ const LOCKED_POS_FILTER = [0.25, 0.5];
 const LOST_AFTER = 1.2; // seconds without a person before content hides
 const APPEAR_TIME = 0.55; // seconds for the pop-in / shrink-out animation
 const TURN_RATE = 12; // smoothing of lock / gyro rotations (1/s)
-const STREAM_LEAN = -0.15; // slight diagonal sweep of the light stream (rad)
-const STREAM_SPIN = 0.52; // 360° revolution of the light stream (rad/s, ~12 s per turn)
-const STREAM_FILL = 0.92; // share of the frame half-width the stream may use
-const STREAM_HALF_HEIGHT = 2.0; // stream spans about ±2 torso units vertically
-const STREAM_MIN_SQUEEZE = 0.6; // below this the spiral would hug the body too tightly
+const STREAM_FILL = 0.92; // share of the frame half-width the light stream may use
+const STREAM_MIN_SQUEEZE = 0.35; // side-to-side narrowing limit before shrinking instead
+const STREAM_CHEST = 0.6; // light stream is gone this far above the hips (torso units)
 
 const quadVert = /* glsl */ `
   varying vec2 vUv;
@@ -481,7 +479,11 @@ export class ARScene {
     this.stream?.dispose();
     this.stream = null;
     if (settings.fx.stream) {
-      this.stream = new LightStream({ style: settings.fx.streamStyle, clippingPlanes: cp });
+      this.stream = new LightStream({
+        style: settings.fx.streamStyle,
+        radius: settings.ring1.radius, // same distance from the body as the 3D text
+        clippingPlanes: cp,
+      });
       this.root.add(this.stream.outer);
     }
 
@@ -555,33 +557,43 @@ export class ARScene {
       ring.inner.rotation.y = ring.spin + this._orbitYaw;
     }
     if (this.stream) {
-      // Light stream: spirals around the body axis with a diagonal lean,
-      // drifting slowly; locked like the text (turns with _staticYaw).
+      // Light stream: rises from the floor all around the person, at the
+      // same distance from the body as the 3D text. The effect itself does
+      // not spin (only Lock turns it, like the text).
       const o = this.stream.outer;
       o.visible = visible;
-      o.position.copy(a.hip);
-      o.scale.setScalar(a.S * appear);
-      o.rotation.set(0, 0, a.roll + STREAM_LEAN);
-      // continuous 360° revolution around the person
-      this.stream.spin = (this.stream.spin + dt * STREAM_SPIN) % (Math.PI * 2);
-      this.stream.inner.rotation.y = this._staticYaw + this.stream.spin;
-      // Fit the portrait frame: squeeze the spiral sideways so its widest
-      // point stays inside the frame at every angle of the revolution. The
-      // part swinging toward the camera is closer (looks wider), and the lean
-      // shifts the top/bottom sideways, so both are accounted for.
+      // base of the stream on the floor at the person's feet
+      o.position.copy(a.hip).addScaledVector(a.up, a.feetY - a.hip.y);
+      o.rotation.set(0, 0, a.roll);
+      // Fit the portrait frame by narrowing the circle side-to-side only
+      // (front/back distance stays like the text). Check every angle around
+      // the circle: points toward the camera are closer and look wider.
+      // Same distance from the body as the 3D text: match the text's actual
+      // front distance (the text itself may be scaled down to fit the frame).
+      const text = this.rings.ring1;
+      const textFront = text?.static ? text.frontZ * text.outer.scale.x : null;
+      const sz = textFront
+        ? THREE.MathUtils.clamp(textFront / (this.stream.maxRadius * a.S * Math.max(appear, 0.05)), 0.3, 1.5)
+        : 1;
       const D = -a.hip.z;
       const t = tanHalf * this.camera.aspect;
       const offCentre = Math.abs(a.hip.x) / D; // person not centred: less room on one side
       const f = Math.max(0.2, STREAM_FILL - offCentre / t);
-      const reach = (f * D * t) / (1 + f * t); // widest radius that still projects inside
-      const leanShift = STREAM_HALF_HEIGHT * a.S * Math.abs(Math.sin(STREAM_LEAN));
-      const needed = (reach - leanShift) / (this.stream.maxRadius * a.S);
-      // never squeeze so far that it stops wrapping the body; in tight
-      // close-ups shrink the whole stream a little instead
-      const radial = THREE.MathUtils.clamp(needed, STREAM_MIN_SQUEEZE, 1);
-      const shrink = THREE.MathUtils.clamp(needed / STREAM_MIN_SQUEEZE, 0.4, 1);
-      o.scale.multiplyScalar(shrink);
-      this.stream.update(dt, this.pointScale * this.root.scale.z * o.scale.x, radial);
+      const R = this.stream.maxRadius * a.S * sz;
+      let squeeze = 1;
+      for (let i = 1; i <= 12; i++) {
+        const th = (i / 12) * (Math.PI / 2);
+        const depth = Math.max(0.2 * D, D - R * Math.cos(th));
+        squeeze = Math.min(squeeze, (f * t * depth) / (R * Math.sin(th)));
+      }
+      // never squeeze into the body; in tight close-ups shrink it instead
+      const fitSqueeze = THREE.MathUtils.clamp(squeeze, STREAM_MIN_SQUEEZE, 1);
+      const shrink = THREE.MathUtils.clamp(squeeze / STREAM_MIN_SQUEEZE, 0.45, 1);
+      o.scale.setScalar(a.S * appear * shrink);
+      // fade out between this person's hips and chest
+      const hipUp = (a.hip.y - a.feetY) / a.S; // floor -> hips, in torso units
+      this.stream.setFade(hipUp / STREAM_HEIGHT, (hipUp + STREAM_CHEST) / STREAM_HEIGHT);
+      this.stream.update(dt, this.pointScale * this.root.scale.z * o.scale.x, fitSqueeze * sz, sz, this._staticYaw);
     }
 
     this.scene.updateMatrixWorld();
