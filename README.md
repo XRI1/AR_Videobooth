@@ -2,7 +2,7 @@
 
 A browser-based AR video booth. Point a phone at a person and curved 3D text, fireworks and sparklers appear around them, with the person correctly cut out so effects can pass behind their body. Press **Lock** to pin everything to a real spot in the room, walk the phone around the person, record, then download or share the video. No app install needed.
 
-Current version: **2.4**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
+Current version: **2.5**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
 
 ## Features
 
@@ -10,7 +10,7 @@ Current version: **2.4**. It's shown at the top of **Settings → Camera & track
 - **Real occlusion.** A person segmentation mask cuts the person out of the video, so anything behind them is hidden by their body.
 - **Smooth body tracking.** Pose tracking keeps the text on the person's torso and scales it with their size. One Euro filtering removes jitter, and the text glides at 60 fps between 30 fps detections. It pops in when a person appears and shrinks away if they leave the frame.
 - **Lock button.** Pins the text and effects in the real room (see below). It uses ARCore surface tracking on supported Android phones and a motion-sensor fallback elsewhere.
-- **3D objects rising around the person:** glossy glass **capsules**, blue and lime-green **cubes** and spheres rise out of the floor all around the person and revolve upward along invisible spiral paths, then fade out between the hips and chest (never reaching the head). They keep the same distance from the body as the 3D text but never come closer than the body and arms, the layout freezes when you press Lock (no jump), and they pass behind the body (hidden by the cut-out). Choose capsules, cubes or both in **Settings → Effects**.
+- **3D objects rising around the person:** glossy glass **capsules**, blue and lime-green **cubes** and spheres rise straight up out of the floor at spots all around the person (a new random spot each time they rise again; they never move around the body), then fade out between the hips and chest (never reaching the head). They keep the same distance from the body as the 3D text but never come closer than the body and arms, the layout freezes when you press Lock (no jump), and they pass behind the body (hidden by the cut-out). Choose capsules, cubes or both in **Settings → Effects**.
 - **FX:** fireworks behind the person (rockets, peony, ring and willow bursts), sparkler fountains at their feet, and twinkling glitter.
 - **Recording as MP4:** captures the composited AR canvas as a standard **MP4 (H.264 video)**. Videos are silent by default (no microphone permission asked); tick **Record sound with the video** in settings to add AAC audio that every phone, gallery and messaging app plays. It uses the phone's hardware encoder through WebCodecs plus [mp4-muxer](https://github.com/Vanilagy/mp4-muxer), which works in Chrome on Android, where the built-in recorder only makes WebM. It falls back to the browser's own MP4 recorder (Safari/iOS), and only then to WebM. Also has photo capture, download and native share on phones. Recording keeps running through Lock and Unlock.
 - **Offline-friendly:** settings are saved per device, and the ML models and runtime are self-hosted, so nothing loads from third-party CDNs at the venue.

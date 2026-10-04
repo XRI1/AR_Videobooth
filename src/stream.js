@@ -1,8 +1,7 @@
-// 3D object stream: glossy glass capsules, cubes and spheres (blue /
-// lime-green, like a probiotic / data-flow visual) rise out of the floor all
-// around the person and revolve upward along invisible spiral paths, fading
-// out between hip and chest height. Only the 3D objects are drawn; the effect
-// as a whole never spins.
+// 3D object effect: glossy glass capsules, cubes and spheres (blue /
+// lime-green, like a probiotic / data-flow visual) rise straight up out of the
+// floor at spots all around the person and fade out between hip and chest
+// height. They never move around the body.
 //
 // Everything is in torso units (scaled with the person by the scene) and uses
 // the scene's clipping plane, so objects pass behind the body and come back
@@ -85,56 +84,21 @@ const glassFrag = /* glsl */ `
   }
 `;
 
-/* ------------------------------ paths ------------------------------ */
+/* ------------------------------ motion ------------------------------ */
 
 const rand = (a, b) => a + Math.random() * (b - a);
-const LUT_SIZE = 256;
-const PATH_COUNT = 9;
-const TURNS = 1.25; // revolutions around the body over the stream's full height
-/** Stream height from the floor (torso units: hips ~1.8 up, chest ~2.4). */
+/** Rise height from the floor (torso units: hips ~1.8 up, chest ~2.4). */
 export const STREAM_HEIGHT = 3.2;
+const RADIUS_RANGE = [0.9, 1.08]; // spread of distances from the body axis (x radius)
 
-/**
- * One invisible path: rises out of the floor and revolves upward around the
- * body axis. Torso units, y = 0 on the floor.
- */
-function makePathCurve({ phase, radius, wobble, lift }) {
-  const pts = [];
-  for (let i = 0; i <= 48; i++) {
-    const s = i / 48;
-    const a = phase + s * TURNS * TAU;
-    const r = radius * (1 + wobble * Math.sin(s * TAU * 1.5 + phase * 3));
-    const y = s * STREAM_HEIGHT + lift * s * Math.sin(s * TAU + phase); // starts exactly on the floor
-    pts.push(new THREE.Vector3(Math.sin(a) * r, y, Math.cos(a) * r));
-  }
-  return new THREE.CatmullRomCurve3(pts, false, 'centripetal');
-}
-
-/** Evenly spaced samples of a curve, for cheap per-frame lookups. */
-function makeLut(curve) {
-  const pts = curve.getSpacedPoints(LUT_SIZE - 1);
-  const arr = new Float32Array(LUT_SIZE * 3);
-  pts.forEach((p, i) => p.toArray(arr, i * 3));
-  return arr;
-}
-
-function sampleLut(lut, s, out) {
-  const f = THREE.MathUtils.clamp(s, 0, 1) * (LUT_SIZE - 1);
-  const i = Math.min(LUT_SIZE - 2, Math.floor(f));
-  const t = f - i;
-  const j = i * 3;
-  return out.set(
-    lut[j] + (lut[j + 3] - lut[j]) * t,
-    lut[j + 1] + (lut[j + 4] - lut[j + 1]) * t,
-    lut[j + 2] + (lut[j + 5] - lut[j + 2]) * t,
-  );
+/** Repeatable pseudo-random 0..1 from a number (new spot for every rise). */
+function hash01(n) {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
 }
 
 const _p = new THREE.Vector3();
-const _p2 = new THREE.Vector3();
-const _tan = new THREE.Vector3();
 const _q = new THREE.Quaternion();
-const _q2 = new THREE.Quaternion();
 const _qYaw = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 const _m = new THREE.Matrix4();
@@ -151,39 +115,19 @@ export class LightStream {
    * @param {THREE.Plane[]} o.clippingPlanes
    */
   constructor({ style = 'both', radius = 1.3, clippingPlanes }) {
-    // outer: placed on the floor under the person by the scene (never spins).
-    // Object positions are computed in outer space, so fitting the circle to
-    // the frame never squashes their shape.
+    // outer: placed on the floor under the person by the scene (never moves
+    // around the body). Object positions are computed in outer space, so
+    // fitting the circle to the frame never squashes their shape.
     this.outer = new THREE.Group();
     this.time = 0;
     this.fadeStart = 0.55;
     this.fadeEnd = 0.75;
+    this.radius = radius;
+    this.maxRadius = radius * RADIUS_RANGE[1];
+    this.minRadius = radius * RADIUS_RANGE[0];
     this._materials = [];
     this._geometries = [];
 
-    // --- invisible paths, spread evenly all the way around the body ---
-    this.paths = [];
-    for (let i = 0; i < PATH_COUNT; i++) {
-      const curve = makePathCurve({
-        phase: (i / PATH_COUNT) * TAU + rand(-0.15, 0.15),
-        radius: radius * rand(0.9, 1.08),
-        wobble: rand(0.03, 0.08),
-        lift: rand(0.03, 0.1),
-      });
-      this.paths.push(makeLut(curve));
-    }
-    // widest / closest horizontal reach (frame fit, body clearance)
-    this.maxRadius = 0;
-    this.minRadius = Infinity;
-    for (const lut of this.paths) {
-      for (let i = 0; i < LUT_SIZE; i++) {
-        const r = Math.hypot(lut[i * 3], lut[i * 3 + 2]);
-        this.maxRadius = Math.max(this.maxRadius, r);
-        this.minRadius = Math.min(this.minRadius, r);
-      }
-    }
-
-    // --- glass objects ---
     const glass = (edges) => {
       const m = new THREE.ShaderMaterial({
         vertexShader: glassVert,
@@ -198,6 +142,7 @@ export class LightStream {
       return m;
     };
     this.items = [];
+    let seed = 0;
     const add = (geo, mat, count, kind, colorFn, sizeRange) => {
       if (!count) return;
       this._geometries.push(geo);
@@ -215,12 +160,11 @@ export class LightStream {
           mesh,
           index: i,
           kind,
-          path: i % this.paths.length, // spread around the whole circle
+          seed: ++seed * 7.31,
           s0: Math.random(),
           speed: rand(0.12, 0.2), // floor -> fade-out in ~4-7 s
           size: rand(sizeRange[0], sizeRange[1]),
-          offset: new THREE.Vector3(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(0.05),
-          spin: new THREE.Vector3(rand(-1.2, 1.2), rand(-1.2, 1.2), rand(-1.2, 1.2)),
+          spin: new THREE.Vector3(rand(-0.8, 0.8), rand(-0.8, 0.8), rand(-0.8, 0.8)),
           phase: Math.random() * TAU,
         });
       }
@@ -253,8 +197,8 @@ export class LightStream {
   }
 
   /**
-   * Fade window along the stream (0 = floor, 1 = top of the stream): fully
-   * visible below `start`, gone above `end`.
+   * Fade window along the rise (0 = floor, 1 = STREAM_HEIGHT): fully visible
+   * below `start`, gone above `end`.
    */
   setFade(start, end) {
     this.fadeStart = start;
@@ -262,45 +206,43 @@ export class LightStream {
   }
 
   /**
-   * Advance the animation.
+   * Advance the animation. Objects rise straight up from the floor at a spot
+   * around the person (a new random spot each time they rise again); they do
+   * not move around the body.
    * @param {number} dt
    * @param {number} sx  side-to-side scale of the circle (fits the frame)
    * @param {number} sz  front/back scale of the circle (matches the text's distance)
-   * @param {number} yaw  facing in the room (Lock); the effect never spins
+   * @param {number} yaw  facing in the room (Lock)
    */
   update(dt, sx = 1, sz = 1, yaw = 0) {
     this.time += dt;
     const t = this.time;
     _qYaw.setFromAxisAngle(_up, yaw);
     const span = this.fadeEnd + 0.02; // objects only travel the visible part
-    const sizeK = 0.7 + 0.3 * Math.min(1, sx, sz); // a bit smaller in a narrowed stream
+    const sizeK = 0.7 + 0.3 * Math.min(1, sx, sz); // a bit smaller in a narrowed circle
     const dirty = new Set();
     for (const it of this.items) {
-      // rise from the floor, revolving upward along the path
-      const s = ((it.s0 + t * it.speed) % 1) * span;
-      const lut = this.paths[it.path];
-      sampleLut(lut, s, _p).applyQuaternion(_qYaw);
-      sampleLut(lut, Math.min(1, s + 0.01), _p2).applyQuaternion(_qYaw);
+      const progress = it.s0 + t * it.speed;
+      const rise = Math.floor(progress); // which rise this is (new spot each time)
+      const s = (progress - rise) * span;
+      // spot around the person for this rise: angle + distance from the body axis
+      const angle = hash01(it.seed + rise * 1.37) * TAU;
+      const r = this.radius * THREE.MathUtils.lerp(RADIUS_RANGE[0], RADIUS_RANGE[1], hash01(it.seed * 3.1 + rise));
+      _p.set(Math.sin(angle) * r, s * STREAM_HEIGHT, Math.cos(angle) * r).applyQuaternion(_qYaw);
       _p.x *= sx;
       _p.z *= sz;
-      _p2.x *= sx;
-      _p2.z *= sz;
-      _tan.copy(_p2).sub(_p).normalize();
       // emerge from the floor (grow in), then fade out between hip and chest
       const emerge = THREE.MathUtils.smoothstep(s, 0, 0.06);
       const fadeOut = 1 - THREE.MathUtils.smoothstep(s, this.fadeStart, this.fadeEnd);
       it.mesh.userData.fade.setX(it.index, fadeOut);
-      _p.addScaledVector(it.offset, emerge); // offsets open up as it leaves the floor
       const k = it.size * emerge * (0.7 + 0.3 * fadeOut) * sizeK;
+      // gentle tumble in place (capsules mostly upright, as they rise)
       if (it.kind === 'capsule') {
-        // lie along the path, rolling slowly
-        _q.setFromUnitVectors(_up, _tan);
-        _q2.setFromAxisAngle(_up, t * 0.8 + it.phase);
-        _q.multiply(_q2);
+        _e.set(0.35 * Math.sin(t * 0.7 + it.phase), it.phase + t * 0.6, 0.35 * Math.cos(t * 0.5 + it.phase));
       } else {
         _e.set(it.phase + t * it.spin.x, it.phase * 2 + t * it.spin.y, t * it.spin.z);
-        _q.setFromEuler(_e);
       }
+      _q.setFromEuler(_e);
       _m.compose(_p, _q, _s.set(k, k, k));
       it.mesh.setMatrixAt(it.index, _m);
       dirty.add(it.mesh);
