@@ -212,6 +212,12 @@ export class LightStream {
     this.outer = new THREE.Group(); // placed on the body by the scene
     this.inner = new THREE.Group(); // slow drift around the body axis
     this.outer.add(this.inner);
+    // Ribbons + sparkles can be squeezed sideways to fit a narrow frame;
+    // the glass objects keep their shape (their positions are squeezed instead).
+    this.ribbons = new THREE.Group();
+    this.objects = new THREE.Group();
+    this.inner.add(this.ribbons, this.objects);
+    this.radial = 1;
     this.spin = 0;
     this.time = 0;
     this._materials = [];
@@ -221,14 +227,14 @@ export class LightStream {
 
     // --- strands: 2 thick glowing ribbons + thin filaments ---
     const strandDefs = [
-      { phase: 0.0, radius: 1.05, wobble: 0.1, lift: 0.12, thick: 0.075, color: BLUE, opacity: 0.9 },
-      { phase: 0.35, radius: 1.2, wobble: 0.14, lift: 0.1, thick: 0.05, color: CYAN, opacity: 0.8 },
+      { phase: 0.0, radius: 0.66, wobble: 0.08, lift: 0.12, thick: 0.07, color: BLUE, opacity: 0.9 },
+      { phase: 0.35, radius: 0.76, wobble: 0.1, lift: 0.1, thick: 0.045, color: CYAN, opacity: 0.8 },
     ];
     for (let i = 0; i < 7; i++) {
       strandDefs.push({
         phase: rand(-0.5, 0.8),
-        radius: rand(0.95, 1.45),
-        wobble: rand(0.05, 0.2),
+        radius: rand(0.58, 0.92), // just outside the body (body half-width ~0.35)
+        wobble: rand(0.04, 0.14),
         lift: rand(0.05, 0.25),
         thick: rand(0.006, 0.016),
         color: i % 2 ? CYAN : BLUE,
@@ -256,11 +262,18 @@ export class LightStream {
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.frustumCulled = false;
-      this.inner.add(mesh);
+      this.ribbons.add(mesh);
       this._materials.push(mat);
       this._geometries.push(geo);
       return { lut: makeLut(curve), mat, thick: d.thick };
     });
+    // widest horizontal reach of the stream (used to fit the camera frame)
+    this.maxRadius = 0;
+    for (const s of this.strands) {
+      for (let i = 0; i < LUT_SIZE; i++) {
+        this.maxRadius = Math.max(this.maxRadius, Math.hypot(s.lut[i * 3], s.lut[i * 3 + 2]));
+      }
+    }
 
     // --- flowing glass objects ---
     const glass = (edges) => {
@@ -298,7 +311,7 @@ export class LightStream {
         });
       }
       mesh.instanceColor.needsUpdate = true;
-      this.inner.add(mesh);
+      this.objects.add(mesh);
     };
 
     const caps = style === 'cubes' ? 0 : style === 'capsules' ? 14 : 9;
@@ -348,16 +361,21 @@ export class LightStream {
     });
     const sparks = new THREE.Points(sg, this.sparkMat);
     sparks.frustumCulled = false;
-    this.inner.add(sparks);
+    this.ribbons.add(sparks);
     this._materials.push(this.sparkMat);
     this._geometries.push(sg);
 
     this.update(0, 1);
   }
 
-  /** Advance the animation. `pointScale` = screen size factor for sparkles. */
-  update(dt, pointScale) {
+  /**
+   * Advance the animation. `pointScale` = screen size factor for sparkles;
+   * `radial` (0..1) squeezes the stream sideways to fit a narrow frame.
+   */
+  update(dt, pointScale, radial = 1) {
     this.time += dt;
+    this.radial = radial;
+    this.ribbons.scale.set(radial, 1, radial);
     const t = this.time;
     for (const s of this.strands) s.mat.uniforms.uTime.value = t;
     this.sparkMat.uniforms.uTime.value = t;
@@ -369,11 +387,15 @@ export class LightStream {
       const lut = this.strands[it.strand].lut;
       sampleLut(lut, s, _p);
       sampleLut(lut, Math.min(1, s + 0.01), _p2);
+      _p.x *= radial;
+      _p.z *= radial;
+      _p2.x *= radial;
+      _p2.z *= radial;
       _tan.copy(_p2).sub(_p).normalize();
       // grow in at the start of the stream, fade out at the end
       const fade = THREE.MathUtils.smoothstep(s, 0, 0.08) * (1 - THREE.MathUtils.smoothstep(s, 0.88, 1));
       _p.addScaledVector(it.offset, 1);
-      const k = it.size * fade;
+      const k = it.size * fade * (0.55 + 0.45 * radial); // a bit smaller in a squeezed stream
       if (it.kind === 'capsule') {
         // lie along the stream, rolling slowly
         _q.setFromUnitVectors(_up, _tan);

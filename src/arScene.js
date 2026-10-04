@@ -32,8 +32,11 @@ const LOCKED_POS_FILTER = [0.25, 0.5];
 const LOST_AFTER = 1.2; // seconds without a person before content hides
 const APPEAR_TIME = 0.55; // seconds for the pop-in / shrink-out animation
 const TURN_RATE = 12; // smoothing of lock / gyro rotations (1/s)
-const STREAM_LEAN = -0.32; // diagonal sweep of the light stream (rad)
-const STREAM_DRIFT = 0.12; // slow rotation of the light stream (rad/s)
+const STREAM_LEAN = -0.15; // slight diagonal sweep of the light stream (rad)
+const STREAM_SPIN = 0.52; // 360° revolution of the light stream (rad/s, ~12 s per turn)
+const STREAM_FILL = 0.92; // share of the frame half-width the stream may use
+const STREAM_HALF_HEIGHT = 2.0; // stream spans about ±2 torso units vertically
+const STREAM_MIN_SQUEEZE = 0.6; // below this the spiral would hug the body too tightly
 
 const quadVert = /* glsl */ `
   varying vec2 vUv;
@@ -559,9 +562,26 @@ export class ARScene {
       o.position.copy(a.hip);
       o.scale.setScalar(a.S * appear);
       o.rotation.set(0, 0, a.roll + STREAM_LEAN);
-      this.stream.spin += dt * STREAM_DRIFT;
+      // continuous 360° revolution around the person
+      this.stream.spin = (this.stream.spin + dt * STREAM_SPIN) % (Math.PI * 2);
       this.stream.inner.rotation.y = this._staticYaw + this.stream.spin;
-      this.stream.update(dt, this.pointScale * this.root.scale.z * o.scale.x);
+      // Fit the portrait frame: squeeze the spiral sideways so its widest
+      // point stays inside the frame at every angle of the revolution. The
+      // part swinging toward the camera is closer (looks wider), and the lean
+      // shifts the top/bottom sideways, so both are accounted for.
+      const D = -a.hip.z;
+      const t = tanHalf * this.camera.aspect;
+      const offCentre = Math.abs(a.hip.x) / D; // person not centred: less room on one side
+      const f = Math.max(0.2, STREAM_FILL - offCentre / t);
+      const reach = (f * D * t) / (1 + f * t); // widest radius that still projects inside
+      const leanShift = STREAM_HALF_HEIGHT * a.S * Math.abs(Math.sin(STREAM_LEAN));
+      const needed = (reach - leanShift) / (this.stream.maxRadius * a.S);
+      // never squeeze so far that it stops wrapping the body; in tight
+      // close-ups shrink the whole stream a little instead
+      const radial = THREE.MathUtils.clamp(needed, STREAM_MIN_SQUEEZE, 1);
+      const shrink = THREE.MathUtils.clamp(needed / STREAM_MIN_SQUEEZE, 0.4, 1);
+      o.scale.multiplyScalar(shrink);
+      this.stream.update(dt, this.pointScale * this.root.scale.z * o.scale.x, radial);
     }
 
     this.scene.updateMatrixWorld();
