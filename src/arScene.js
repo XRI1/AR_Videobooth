@@ -33,7 +33,9 @@ const LOST_AFTER = 1.2; // seconds without a person before content hides
 const APPEAR_TIME = 0.55; // seconds for the pop-in / shrink-out animation
 const TURN_RATE = 12; // smoothing of lock / gyro rotations (1/s)
 const STREAM_FILL = 0.92; // share of the frame half-width the light stream may use
-const STREAM_MIN_SQUEEZE = 0.35; // side-to-side narrowing limit before shrinking instead
+// closest the stream may come to the body axis (torso units): body + arms half-width
+// (~0.55) + room for the biggest capsule (~0.25), so nothing passes through the body
+const STREAM_BODY_CLEARANCE = 0.82;
 const STREAM_CHEST = 0.6; // light stream is gone this far above the hips (torso units)
 
 const quadVert = /* glsl */ `
@@ -340,6 +342,7 @@ export class ARScene {
       this._goal.S = this.anchor.S;
       this._goal.ang = this._ang;
     }
+    if (!locked) this._streamLayout = null; // light stream re-fits to the live person
     // Unlocking glides the content back to the front by the shortest way.
     if (!locked) this._staticYaw = wrapAngle(this._staticYaw);
     this._yawFilter.reset();
@@ -560,40 +563,21 @@ export class ARScene {
       // Light stream: rises from the floor all around the person, at the
       // same distance from the body as the 3D text. The effect itself does
       // not spin (only Lock turns it, like the text).
+      // Layout (circle size, frame fit, floor offset, fade heights). While
+      // locked it is frozen as it was at the moment of locking, so pressing
+      // Lock (or entering AR mode, which re-measures the floor) changes nothing.
+      let L = this._streamLayout;
+      if (!this.locked || !L) {
+        L = this._computeStreamLayout(a, appear, tanHalf);
+        this._streamLayout = this.locked ? L : null;
+      }
       const o = this.stream.outer;
       o.visible = visible;
-      // base of the stream on the floor at the person's feet
-      o.position.copy(a.hip).addScaledVector(a.up, a.feetY - a.hip.y);
+      o.position.copy(a.hip).addScaledVector(a.up, L.floorOffset * a.S); // base on the floor
       o.rotation.set(0, 0, a.roll);
-      // Fit the portrait frame by narrowing the circle side-to-side only
-      // (front/back distance stays like the text). Check every angle around
-      // the circle: points toward the camera are closer and look wider.
-      // Same distance from the body as the 3D text: match the text's actual
-      // front distance (the text itself may be scaled down to fit the frame).
-      const text = this.rings.ring1;
-      const textFront = text?.static ? text.frontZ * text.outer.scale.x : null;
-      const sz = textFront
-        ? THREE.MathUtils.clamp(textFront / (this.stream.maxRadius * a.S * Math.max(appear, 0.05)), 0.3, 1.5)
-        : 1;
-      const D = -a.hip.z;
-      const t = tanHalf * this.camera.aspect;
-      const offCentre = Math.abs(a.hip.x) / D; // person not centred: less room on one side
-      const f = Math.max(0.2, STREAM_FILL - offCentre / t);
-      const R = this.stream.maxRadius * a.S * sz;
-      let squeeze = 1;
-      for (let i = 1; i <= 12; i++) {
-        const th = (i / 12) * (Math.PI / 2);
-        const depth = Math.max(0.2 * D, D - R * Math.cos(th));
-        squeeze = Math.min(squeeze, (f * t * depth) / (R * Math.sin(th)));
-      }
-      // never squeeze into the body; in tight close-ups shrink it instead
-      const fitSqueeze = THREE.MathUtils.clamp(squeeze, STREAM_MIN_SQUEEZE, 1);
-      const shrink = THREE.MathUtils.clamp(squeeze / STREAM_MIN_SQUEEZE, 0.45, 1);
-      o.scale.setScalar(a.S * appear * shrink);
-      // fade out between this person's hips and chest
-      const hipUp = (a.hip.y - a.feetY) / a.S; // floor -> hips, in torso units
-      this.stream.setFade(hipUp / STREAM_HEIGHT, (hipUp + STREAM_CHEST) / STREAM_HEIGHT);
-      this.stream.update(dt, this.pointScale * this.root.scale.z * o.scale.x, fitSqueeze * sz, sz, this._staticYaw);
+      o.scale.setScalar(a.S * appear);
+      this.stream.setFade(L.fadeStart, L.fadeEnd);
+      this.stream.update(dt, this.pointScale * this.root.scale.z * o.scale.x, L.sx, L.sz, this._staticYaw);
     }
 
     this.scene.updateMatrixWorld();
@@ -665,6 +649,48 @@ export class ARScene {
     this.fx.salvo(this.anchor);
   }
 
+  /**
+   * Light-stream layout for the current person and frame:
+   *  - sz: front/back scale, so the stream keeps the 3D text's distance
+   *  - sx: side-to-side scale, narrowed to fit the portrait frame
+   *  - both never below the body clearance (objects must not enter the body)
+   *  - floorOffset / fade window measured on this person (torso units)
+   */
+  _computeStreamLayout(a, appear, tanHalf) {
+    const st = this.stream;
+    // never closer to the body axis than this (body half-width + biggest object)
+    const minScale = STREAM_BODY_CLEARANCE / st.minRadius;
+    // match the 3D text's actual front distance (it may be scaled to fit the frame)
+    const text = this.rings.ring1;
+    const textFront = text?.static ? text.frontZ * text.outer.scale.x : null;
+    let sz = textFront ? textFront / (st.maxRadius * a.S * Math.max(appear, 0.05)) : 1;
+    sz = THREE.MathUtils.clamp(Math.max(sz, minScale), 0.3, 1.6);
+    // narrow side-to-side to fit the frame, checking every angle around the
+    // circle (points toward the camera are closer and look wider)
+    const D = -a.hip.z;
+    const t = tanHalf * this.camera.aspect;
+    const offCentre = Math.abs(a.hip.x) / D; // person not centred: less room on one side
+    const f = Math.max(0.2, STREAM_FILL - offCentre / t);
+    const R = st.maxRadius * a.S * sz;
+    let squeeze = 1;
+    for (let i = 1; i <= 12; i++) {
+      const th = (i / 12) * (Math.PI / 2);
+      const depth = Math.max(0.2 * D, D - R * Math.cos(th));
+      squeeze = Math.min(squeeze, (f * t * depth) / (R * Math.sin(th)));
+    }
+    // clearance wins over the frame fit: in a tight close-up the sides may
+    // run past the frame edge rather than pass through the body
+    const sx = Math.max(Math.min(1, squeeze) * sz, minScale);
+    const hipUp = (a.hip.y - a.feetY) / a.S; // floor -> hips, in torso units
+    return {
+      sx,
+      sz,
+      floorOffset: -hipUp,
+      fadeStart: hipUp / STREAM_HEIGHT,
+      fadeEnd: (hipUp + STREAM_CHEST) / STREAM_HEIGHT,
+    };
+  }
+
   /* ----------------------- world-lock AR (WebXR) ----------------------- */
   //
   // In this mode ARCore tracks the phone in the room. The content keeps its
@@ -688,6 +714,7 @@ export class ARScene {
   exitXR() {
     this.xr = null;
     this.locked = false;
+    this._streamLayout = null;
     // The ARCore camera texture dies with the session: drawing with it again
     // can crash Chrome's GPU process ("Aw, Snap"). Draw nothing until the
     // normal camera is back (setVideo).

@@ -323,11 +323,14 @@ export class LightStream {
       this._geometries.push(geo);
       return { lut: makeLut(curve), mat };
     });
-    // widest horizontal reach of the stream (used to fit the camera frame)
+    // widest / closest horizontal reach of the stream (frame fit, body clearance)
     this.maxRadius = 0;
+    this.minRadius = Infinity;
     for (const s of this.strands) {
       for (let i = 0; i < LUT_SIZE; i++) {
-        this.maxRadius = Math.max(this.maxRadius, Math.hypot(s.lut[i * 3], s.lut[i * 3 + 2]));
+        const r = Math.hypot(s.lut[i * 3], s.lut[i * 3 + 2]);
+        this.maxRadius = Math.max(this.maxRadius, r);
+        this.minRadius = Math.min(this.minRadius, r);
       }
     }
 
