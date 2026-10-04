@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createTextRing, createBadgeRing, createGlitter, makeBadgeTexture, faceCamera } from './rings.js';
 import { FireworksFX } from './fireworks.js';
+import { LightStream } from './stream.js';
 import { OneEuroFilter, damp, wrapAngle, easeOutBack } from './filters.js';
 
 // Virtual camera FOV. Narrower than a real phone lens (~63°) on purpose: it
@@ -31,6 +32,8 @@ const LOCKED_POS_FILTER = [0.25, 0.5];
 const LOST_AFTER = 1.2; // seconds without a person before content hides
 const APPEAR_TIME = 0.55; // seconds for the pop-in / shrink-out animation
 const TURN_RATE = 12; // smoothing of lock / gyro rotations (1/s)
+const STREAM_LEAN = -0.32; // diagonal sweep of the light stream (rad)
+const STREAM_DRIFT = 0.12; // slow rotation of the light stream (rad/s)
 
 const quadVert = /* glsl */ `
   varying vec2 vUv;
@@ -472,6 +475,13 @@ export class ARScene {
 
     for (const [k, r] of Object.entries(this.rings)) r.spin = prevSpin[k] ?? 0;
 
+    this.stream?.dispose();
+    this.stream = null;
+    if (settings.fx.stream) {
+      this.stream = new LightStream({ style: settings.fx.streamStyle, clippingPlanes: cp });
+      this.root.add(this.stream.outer);
+    }
+
     if (settings.fx.glitter && this.rings.ring1) {
       this.glitter = createGlitter({
         radius: settings.ring1.radius,
@@ -541,6 +551,19 @@ export class ARScene {
       ring.outer.rotation.set(tilt, 0, a.roll, 'ZXY');
       ring.inner.rotation.y = ring.spin + this._orbitYaw;
     }
+    if (this.stream) {
+      // Light stream: spirals around the body axis with a diagonal lean,
+      // drifting slowly; locked like the text (turns with _staticYaw).
+      const o = this.stream.outer;
+      o.visible = visible;
+      o.position.copy(a.hip);
+      o.scale.setScalar(a.S * appear);
+      o.rotation.set(0, 0, a.roll + STREAM_LEAN);
+      this.stream.spin += dt * STREAM_DRIFT;
+      this.stream.inner.rotation.y = this._staticYaw + this.stream.spin;
+      this.stream.update(dt, this.pointScale * this.root.scale.z * o.scale.x);
+    }
+
     this.scene.updateMatrixWorld();
     if (this.rings.badge) faceCamera(this.rings.badge, this.camera);
 

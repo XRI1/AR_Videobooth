@@ -45,7 +45,13 @@ export function defaultSettings() {
       size: 0.55,
       speed: 0.9,
     },
-    fx: { fireworks: true, fountains: true, glitter: true },
+    fx: {
+      fireworks: true,
+      fountains: true,
+      glitter: true,
+      stream: true, // 3D light stream with flowing glass capsules / cubes
+      streamStyle: 'both', // 'capsules' | 'cubes' | 'both'
+    },
     occlusion: true,
     tilt: 0.12,
     invertGyro: false,
