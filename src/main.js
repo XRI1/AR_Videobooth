@@ -1,3 +1,9 @@
+// Brand fonts (self-hosted, so they also work offline at the venue)
+import '@fontsource/fredoka/500.css';
+import '@fontsource/fredoka/600.css';
+import '@fontsource/fredoka/700.css';
+import '@fontsource/nunito/600.css';
+import '@fontsource/nunito/700.css';
 import * as THREE from 'three';
 import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { Camera } from './camera.js';
@@ -10,7 +16,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '2.5'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '2.7'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();

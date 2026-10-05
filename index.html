@@ -3,21 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-  <meta name="theme-color" content="#000000" />
+  <meta name="theme-color" content="#0a1aa6" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <title>AR 360 Video Booth</title>
+  <title>Gut Synbio · AR Booth</title>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
   <canvas id="stage"></canvas>
 
   <!-- Start / loading screen -->
-  <section id="intro" class="overlay">
+  <section id="intro" class="overlay brand-bg">
     <div class="intro-card">
-      <div class="logo-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
-      <h1>AR 360 Video Booth</h1>
-      <p>3D text, logos and fireworks around the person while you walk the camera around them and record.</p>
-      <button id="btnStart" class="btn-primary">Start AR Camera</button>
+      <img class="brand-logo" src="./brand/logo.webp" alt="Gut Synbio — Activating growth through synbiotic science" />
+      <h1 class="intro-title">AR 360° Video Booth</h1>
+      <p class="intro-sub">Step into the frame, lock the scene and record your synbiotic moment.</p>
+      <button id="btnStart" class="btn-primary btn-start">Start AR Camera</button>
       <p><label class="link-btn">or use a video file<input id="fileSource" type="file" accept="video/*" hidden /></label></p>
       <p id="introStatus" class="muted"></p>
     </div>
@@ -169,8 +169,9 @@
   </aside>
 
   <!-- Result modal -->
-  <section id="result" class="overlay hidden">
+  <section id="result" class="overlay brand-bg hidden">
     <div class="result-card">
+      <img class="result-logo" src="./brand/logo.webp" alt="Gut Synbio" />
       <video id="resultVideo" playsinline controls loop></video>
       <img id="resultImage" alt="Captured photo" class="hidden" />
       <div class="result-actions">
