@@ -90,16 +90,16 @@ const glassFrag = /* glsl */ `
 const rand = (a, b) => a + Math.random() * (b - a);
 /** Rise height from the floor (torso units: hips ~1.8 up, chest ~2.4). */
 export const STREAM_HEIGHT = 3.2;
-const RADIUS_RANGE = [0.9, 1.08]; // spread of distances from the body axis (x radius)
+const RADIUS_RANGE = [0.95, 1.05]; // spread of distances from the body axis (x radius)
 /**
  * Side of the capsule (probiotic) stream: +1 = right on screen, under the
  * Probiotic badge; cubes (prebiotic) rise on the left under the GOS Prebiotic
  * badge. Set to -1 to swap (capsules left, as in the key visual).
  */
 const CAPSULE_SIDE = 1;
-const LANE_CENTER = Math.PI / 2 - 0.55; // stream angle from the front: to the side, toward the camera
-const LANE_SPREAD = 0.6; // angular width of each stream (radians)
-const FLARE = 0.3; // streams lean outward as they rise (radius grows by this x rise)
+const LANE_CENTER = Math.PI / 2 - 0.2; // stream angle from the front: beside the body (not toward the camera, which magnifies and pushes off-frame)
+const LANE_SPREAD = 0.35; // angular width of each stream (radians)
+const FLARE = 0.12; // streams lean outward as they rise (radius grows by this x rise)
 
 /** Repeatable pseudo-random 0..1 from a number (new spot for every rise). */
 function hash01(n) {
@@ -189,14 +189,14 @@ export class LightStream {
     const capSide = (i) => (style === 'capsules' ? (i % 2 ? 1 : -1) : CAPSULE_SIDE);
     const cubeSide = (i) => (style === 'cubes' ? (i % 2 ? 1 : -1) : -CAPSULE_SIDE);
     const blueish = () => (Math.random() < 0.5 ? BLUE : CYAN).clone().lerp(BLUE, 0.3);
-    add(new THREE.CapsuleGeometry(0.075, 0.2, 6, 16), glass(0), caps, 'capsule', blueish, [0.8, 1.3], capSide);
+    add(new THREE.CapsuleGeometry(0.075, 0.2, 6, 16), glass(0), caps, 'capsule', blueish, [0.6, 0.95], capSide);
     add(
       new THREE.BoxGeometry(0.15, 0.15, 0.15),
       glass(1),
       cubes,
       'cube',
       (i) => (i % 2 ? LIME.clone() : blueish()),
-      [0.6, 1.3],
+      [0.5, 0.9],
       cubeSide,
     );
     add(
