@@ -1,8 +1,8 @@
 # Gut Synbio · AR 360 Video Booth (WebAR)
 
-A browser-based AR video booth. Point a phone at a person and curved 3D text, fireworks and sparklers appear around them, with the person correctly cut out so effects can pass behind their body. Press **Lock** to pin everything to a real spot in the room, walk the phone around the person and record. Tap **Submit** to upload the video, and a **QR code** appears so the guest can scan it and download the clip to their own phone. No app install needed.
+A browser-based AR video booth. Point a phone at a person and the 3D brand logo, rising glass capsules and cubes, sparklers and glitter appear around them, with the person correctly cut out so effects can pass behind their body. Press **Lock** to pin everything to a real spot in the room, walk the phone around the person and record. Tap **Submit** to upload the video, and a **QR code** appears so the guest can scan it and download the clip to their own phone. No app install needed.
 
-Current version: **3.0**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
+Current version: **3.1**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
 
 ## Features
 
@@ -11,7 +11,7 @@ Current version: **3.0**. It's shown at the top of **Settings → Camera & track
 - **Smooth body tracking.** Pose tracking keeps the text on the person's torso and scales it with their size. One Euro filtering removes jitter, and the text glides at 60 fps between 30 fps detections. It pops in when a person appears and shrinks away if they leave the frame.
 - **Lock button.** Pins the text and effects in the real room (see below). It uses ARCore surface tracking on supported Android phones and a motion-sensor fallback elsewhere.
 - **3D objects rising around the person:** glossy glass **capsules**, blue and lime-green **cubes** and spheres rise straight up out of the floor at spots all around the person (a new random spot each time they rise again; they never move around the body), then fade out between the hips and chest (never reaching the head). They keep the same distance from the body as the 3D text but never come closer than the body and arms, the layout freezes when you press Lock (no jump), and they pass behind the body (hidden by the cut-out). Choose capsules, cubes or both in **Settings → Effects**.
-- **FX:** fireworks behind the person (rockets, peony, ring and willow bursts), sparkler fountains at their feet, and twinkling glitter.
+- **FX:** sparkler fountains at the person's feet and twinkling glitter. (The firework bursts that shot up and exploded were removed in 3.1.)
 - **Recording as MP4:** captures the composited AR canvas as a standard **MP4 (H.264 video)**. Videos are silent by default (no microphone permission asked); tick **Record sound with the video** in settings to add AAC audio that every phone, gallery and messaging app plays. It uses the phone's hardware encoder through WebCodecs plus [mp4-muxer](https://github.com/Vanilagy/mp4-muxer), which works in Chrome on Android, where the built-in recorder only makes WebM. It falls back to the browser's own MP4 recorder (Safari/iOS), and only then to WebM. Also has photo capture, download and native share on phones. Recording keeps running through Lock and Unlock.
 - **Submit + QR download:** after recording, the result screen shows **Submit**, **Download** and **Retake**. **Submit** uploads the MP4 to the [AR backend](https://github.com/Zihan231/AR_Backend) with a live progress bar. When it finishes, a QR code appears next to the video; the guest scans it to open a download page on their own phone. If the upload fails, the reason is shown and the button changes to **Retry submit**. **Retake** discards the clip and cancels any upload still running. Nothing is uploaded unless you tap Submit, and photos are never uploaded.
 - **Offline-friendly:** settings are saved per device, and the ML models and runtime are self-hosted, so nothing loads from third-party CDNs at the venue.
@@ -103,7 +103,7 @@ When Lock falls back, a message says **why** AR lock wasn't available, and the r
 Each frame is composited in four layers ([src/arScene.js](src/arScene.js)):
 
 1. Camera image, full-screen with "cover" fit. In AR mode this is the WebXR camera-access image instead.
-2. **Back half** of the content and the background fireworks. A clipping plane through the person's body axis, facing the camera, removes the near half.
+2. **Back half** of the content. A clipping plane through the person's body axis, facing the camera, removes the near half.
 3. **The person**, cut out of the same image with the segmentation mask. This covers anything behind them.
 4. **Front half** of the content (the clipping plane is flipped) and the foreground sparklers.
 
@@ -121,7 +121,7 @@ All content lives under one root group. Normally it sits in camera space. In AR 
 | [src/xrLock.js](src/xrLock.js) | WebXR/ARCore session: camera image, floor hit-test, anchors |
 | [src/rings.js](src/rings.js) | Curved 3D text, 3D brand logo, badges, glitter |
 | [src/stream.js](src/stream.js) | 3D glass capsules/cubes/spheres rising around the person |
-| [src/fireworks.js](src/fireworks.js) | Particle rockets, bursts, fountains |
+| [src/fireworks.js](src/fireworks.js) | Sparkler fountain particles |
 | [src/tracker.js](src/tracker.js) | MediaPipe pose + segmentation |
 | [src/filters.js](src/filters.js) | One Euro filter and easing helpers |
 | [src/gyro.js](src/gyro.js) | Device-orientation heading/pitch |

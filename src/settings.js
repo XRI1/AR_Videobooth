@@ -6,7 +6,7 @@ export const isMobile =
 
 const STORAGE_KEY = 'ar360.settings.v1';
 // Bump when a one-time change must reach saved settings (see loadSettings).
-const SETTINGS_REV = 5;
+const SETTINGS_REV = 6;
 
 export function defaultSettings() {
   return {
@@ -47,7 +47,7 @@ export function defaultSettings() {
       speed: 0.9,
     },
     fx: {
-      fireworks: true,
+      fireworks: false, // rockets that shoot up and burst: removed from the booth
       fountains: true,
       glitter: true,
       stream: true, // 3D light stream with flowing glass capsules / cubes
@@ -109,6 +109,9 @@ export function loadSettings() {
     }
     if (saved && (saved.rev ?? 1) < 5) {
       s.ring1.logoText = true; // rev 5: 3D text is now the "gut SYNBIO" brand lettering
+    }
+    if (saved && (saved.rev ?? 1) < 6) {
+      s.fx.fireworks = false; // rev 6: firework bursts removed
     }
     if (saved && saved.rev !== SETTINGS_REV) {
       s.rev = SETTINGS_REV;

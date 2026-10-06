@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '3.0'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '3.1'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -392,7 +392,6 @@ async function stopRecording() {
 }
 
 $('btnPhoto').addEventListener('click', () => (photoRequested = true));
-$('btnFx').addEventListener('click', () => ar?.salvo());
 
 function showResult(blob, kind) {
   if (resultUrl) URL.revokeObjectURL(resultUrl);
