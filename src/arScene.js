@@ -426,7 +426,7 @@ export class ARScene {
 
   /* ----------------------------- content ----------------------------- */
 
-  buildContent(settings, font, logo, brandFont) {
+  buildContent(settings, font, logo, brandLogo) {
     const prevSpin = {};
     for (const [k, r] of Object.entries(this.rings)) prevSpin[k] = r.spin;
     Object.values(this.rings).forEach((r) => r.dispose());
@@ -441,11 +441,11 @@ export class ARScene {
 
     for (const key of ['ring1', 'ring2']) {
       const c = settings[key];
-      const brand = key === 'ring1' && c.logoText && brandFont;
+      const brand = key === 'ring1' && c.logoText && brandLogo;
       if (!c.enabled || (!brand && !c.text.trim())) continue;
       const ring = brand
         ? // "gut SYNBIO" brand lettering (static, in front of the body)
-          createLogoText({ font: brandFont, size: c.size, radius: c.radius, clippingPlanes: cp })
+          createLogoText({ image: brandLogo, size: c.size, radius: c.radius, clippingPlanes: cp })
         : createTextRing({
             font,
             text: c.text,

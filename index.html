@@ -176,7 +176,7 @@
       <div class="result-body">
         <video id="resultVideo" playsinline controls loop></video>
         <img id="resultImage" alt="Captured photo" class="hidden" />
-        <!-- uploads the video and shows a QR code the guest scans to download it -->
+        <!-- after Submit: upload progress, then a QR code the guest scans to download the video -->
         <div id="uploadPanel" class="upload-panel hidden" aria-live="polite">
           <div id="uploadProgress" class="upload-progress">
             <div class="progress-track"><span id="uploadBar"></span></div>
@@ -186,13 +186,12 @@
             <img id="qrImg" alt="QR code: scan to download your video" />
             <p class="qr-caption">Scan to download<br />your video</p>
           </div>
-          <button id="btnRetryUpload" class="btn-ghost hidden" type="button">Retry upload</button>
         </div>
       </div>
       <div class="result-actions">
-        <button id="btnShare" class="btn-primary">Share</button>
+        <button id="btnSubmit" class="btn-primary" type="button">Submit</button>
         <a id="btnDownload" class="btn-primary" download>Download</a>
-        <button id="btnCloseResult" class="btn-ghost">Retake</button>
+        <button id="btnCloseResult" class="btn-ghost" type="button">Retake</button>
       </div>
       <p id="resultInfo" class="muted"></p>
     </div>

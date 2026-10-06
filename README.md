@@ -1,19 +1,19 @@
 # Gut Synbio · AR 360 Video Booth (WebAR)
 
-A browser-based AR video booth. Point a phone at a person and curved 3D text, fireworks and sparklers appear around them, with the person correctly cut out so effects can pass behind their body. Press **Lock** to pin everything to a real spot in the room, walk the phone around the person and record. The video is uploaded automatically and a **QR code** appears so the guest can scan it and download the clip to their own phone. No app install needed.
+A browser-based AR video booth. Point a phone at a person and curved 3D text, fireworks and sparklers appear around them, with the person correctly cut out so effects can pass behind their body. Press **Lock** to pin everything to a real spot in the room, walk the phone around the person and record. Tap **Submit** to upload the video, and a **QR code** appears so the guest can scan it and download the clip to their own phone. No app install needed.
 
-Current version: **2.9**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
+Current version: **3.0**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
 
 ## Features
 
-- **3D brand lettering "gut SYNBIO".** Extruded, bevelled lettering styled after the logo: big glossy electric-blue "gut" over "SYNBIO" in a white-to-cyan gradient with a lime "O", and navy sides like the logo's outline. It uses Fredoka Bold (Open Font License, converted to [public/fonts/fredoka_bold.typeface.json](public/fonts/fredoka_bold.typeface.json)) and is gently curved in front of the person. Untick **Brand 3D lettering** in settings to use your own text instead (text, colours, italic, height, distance, size, font).
+- **3D brand logo "gut SYNBIO".** The front face is the real logo artwork ([public/brand/logo.webp](public/brand/logo.webp), with the small tagline cropped off), so colours, shapes and outline match the brand exactly. A solid navy body is extruded behind it from the logo's outline, so it looks like a thick 3D sign as you walk around. It is gently curved in front of the person. Replace `logo.webp` to change it. Untick **Brand 3D lettering** in settings to use your own 3D text instead (text, colours, italic, height, distance, size, font).
 - **Real occlusion.** A person segmentation mask cuts the person out of the video, so anything behind them is hidden by their body.
 - **Smooth body tracking.** Pose tracking keeps the text on the person's torso and scales it with their size. One Euro filtering removes jitter, and the text glides at 60 fps between 30 fps detections. It pops in when a person appears and shrinks away if they leave the frame.
 - **Lock button.** Pins the text and effects in the real room (see below). It uses ARCore surface tracking on supported Android phones and a motion-sensor fallback elsewhere.
 - **3D objects rising around the person:** glossy glass **capsules**, blue and lime-green **cubes** and spheres rise straight up out of the floor at spots all around the person (a new random spot each time they rise again; they never move around the body), then fade out between the hips and chest (never reaching the head). They keep the same distance from the body as the 3D text but never come closer than the body and arms, the layout freezes when you press Lock (no jump), and they pass behind the body (hidden by the cut-out). Choose capsules, cubes or both in **Settings → Effects**.
 - **FX:** fireworks behind the person (rockets, peony, ring and willow bursts), sparkler fountains at their feet, and twinkling glitter.
 - **Recording as MP4:** captures the composited AR canvas as a standard **MP4 (H.264 video)**. Videos are silent by default (no microphone permission asked); tick **Record sound with the video** in settings to add AAC audio that every phone, gallery and messaging app plays. It uses the phone's hardware encoder through WebCodecs plus [mp4-muxer](https://github.com/Vanilagy/mp4-muxer), which works in Chrome on Android, where the built-in recorder only makes WebM. It falls back to the browser's own MP4 recorder (Safari/iOS), and only then to WebM. Also has photo capture, download and native share on phones. Recording keeps running through Lock and Unlock.
-- **Upload + QR download:** when a recording stops, the MP4 is uploaded to the [AR backend](https://github.com/Zihan231/AR_Backend) with a live progress bar. When it finishes, a QR code appears next to the video; the guest scans it to open a download page on their own phone. If the upload fails, the reason is shown with a **Retry** button. **Retake** cancels any upload still running. Photos are not uploaded.
+- **Submit + QR download:** after recording, the result screen shows **Submit**, **Download** and **Retake**. **Submit** uploads the MP4 to the [AR backend](https://github.com/Zihan231/AR_Backend) with a live progress bar. When it finishes, a QR code appears next to the video; the guest scans it to open a download page on their own phone. If the upload fails, the reason is shown and the button changes to **Retry submit**. **Retake** discards the clip and cancels any upload still running. Nothing is uploaded unless you tap Submit, and photos are never uploaded.
 - **Offline-friendly:** settings are saved per device, and the ML models and runtime are self-hosted, so nothing loads from third-party CDNs at the venue.
 
 ## Brand design
@@ -63,7 +63,7 @@ The backend runs on Render's free tier, which sleeps when idle. The first upload
 2. Frame the person from about 2–4 m away with their **full body, including feet**, in view. The pill at the top reads **Person locked** once tracking has them.
 3. Tap the **padlock** to lock the text in place (see below).
 4. Press **record** and walk slowly around the person, keeping them roughly in frame. Recording stops automatically at 60 s.
-5. Wait for the QR code, and let the guest scan it to download the clip on their phone (or use **Download** / **Share**). Tap **Retake**, then the padlock again to unlock for the next person.
+5. Tap **Submit**, wait for the QR code, and let the guest scan it to download the clip on their phone (or tap **Download** to save it on the booth phone). Tap **Retake**, then the padlock again to unlock for the next person.
 
 Tips: good lighting improves the cut-out edges. On older phones, set **Body tracking model = Lite** and **Cut-out quality = Fast**.
 
@@ -119,7 +119,7 @@ All content lives under one root group. Normally it sits in camera space. In AR 
 | [src/main.js](src/main.js) | App flow, UI, settings wiring, render loop, Lock/Unlock |
 | [src/arScene.js](src/arScene.js) | Three.js compositor, body anchoring, clipping, AR placement |
 | [src/xrLock.js](src/xrLock.js) | WebXR/ARCore session: camera image, floor hit-test, anchors |
-| [src/rings.js](src/rings.js) | Curved 3D text, badges, glitter |
+| [src/rings.js](src/rings.js) | Curved 3D text, 3D brand logo, badges, glitter |
 | [src/stream.js](src/stream.js) | 3D glass capsules/cubes/spheres rising around the person |
 | [src/fireworks.js](src/fireworks.js) | Particle rockets, bursts, fountains |
 | [src/tracker.js](src/tracker.js) | MediaPipe pose + segmentation |
@@ -135,5 +135,5 @@ All content lives under one root group. Normally it sits in camera space. In AR 
 - **AR mode depends on Chrome's WebXR camera-access feature.** If a Chrome version refuses it, Lock falls back to the sensor lock and says so.
 - **Estimated distance can be off.** Without a floor hit, the distance assumes an average torso length (about 0.5 m), so a very tall or short person can be placed roughly 15% too near or far.
 - **Fonts are Latin-only.** The 3D fonts are Latin typefaces. For other scripts, convert a TTF with facetype.js and drop the JSON into `public/fonts/`.
-- **Uploads need internet.** The booth still records offline, but the QR code only appears once the upload succeeds; use **Download** or **Retry** otherwise.
+- **Uploads need internet.** The booth still records offline, but the QR code only appears once the upload succeeds; use **Download** or **Retry submit** otherwise.
 - **WebM only on old browsers.** Browsers with neither WebCodecs nor MP4 MediaRecorder support (rare, older browsers) still record WebM.

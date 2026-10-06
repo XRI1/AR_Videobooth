@@ -31,6 +31,7 @@ export class OrbitRing {
     });
     mats.forEach((m) => m.dispose());
     if (this.ownsTexture) this.texture?.dispose();
+    this.extraTextures?.forEach((t) => t.dispose());
   }
 }
 
@@ -150,122 +151,90 @@ export function createTextRing({ font, text, color, edge, size, radius, italic, 
 }
 
 /**
- * Brand logo text "gut SYNBIO" in 3D, styled after the logo: big glossy blue
- * "gut" on top (its "g" tucks over the second line), "SYNBIO" below in a
- * white-to-cyan gradient with the final "O" turning lime, and dark navy sides
- * like the logo's outline. Static and gently curved in front of the body, like
- * the regular front label (same `frontZ` / `width` contract).
+ * Brand logo "gut SYNBIO" in 3D. The front face is the real logo artwork
+ * (exact colours, shapes and outline, tagline cropped off) and a solid navy
+ * body is extruded behind it from the logo's silhouette, so it reads as a
+ * thick 3D sign when you walk around it. Static and gently curved in front of
+ * the body, like the regular front label (same `frontZ` / `width` contract).
  */
-export function createLogoText({ font, size, radius, clippingPlanes }) {
+const LOGO_CROP = 466 / 518; // keep the lettering, drop the small tagline underneath
+const LOGO_LAYERS = 14; // slices that make up the extruded body
+
+export function createLogoText({ image, size, radius, clippingPlanes }) {
   const ring = new OrbitRing();
   ring.direction = -1;
   ring.static = true;
+  ring.ownsTexture = true;
 
-  const make = (text, s, depthK) => {
-    const g = new TextGeometry(text, {
-      font,
-      size: s,
-      depth: s * depthK,
-      curveSegments: 12,
-      bevelEnabled: true,
-      bevelThickness: s * 0.07,
-      bevelSize: s * 0.045,
-      bevelSegments: 4,
-    });
-    g.computeBoundingBox();
+  // --- textures: the artwork, and its silhouette in navy for the sides ---
+  const W = image.naturalWidth;
+  const H = Math.round(image.naturalHeight * LOGO_CROP);
+  const art = document.createElement('canvas');
+  art.width = W;
+  art.height = H;
+  art.getContext('2d').drawImage(image, 0, 0);
+  const sil = document.createElement('canvas');
+  sil.width = W;
+  sil.height = H;
+  const sg = sil.getContext('2d');
+  sg.drawImage(image, 0, 0);
+  sg.globalCompositeOperation = 'source-in';
+  sg.fillStyle = '#ffffff';
+  sg.fillRect(0, 0, W, H);
+  const tex = (cv) => {
+    const t = new THREE.CanvasTexture(cv);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    return t;
+  };
+  const artTex = tex(art);
+  const silTex = tex(sil);
+  ring.texture = artTex;
+  ring.extraTextures = [silTex];
+
+  // --- size: `size` is the old letter height; the whole sign is ~3.2x as wide ---
+  const width = size * 3.2;
+  const height = (width * H) / W;
+  const depth = width * 0.045;
+  const bendR = Math.max(radius, width / (FRONT_ARC * 0.75));
+  const plane = new THREE.PlaneGeometry(width, height, 64, 1);
+  const place = (z) => {
+    const g = bendAroundCylinder(plane, bendR, 0);
+    g.translate(0, 0, radius - bendR + z);
     return g;
   };
-  // horizontal advance of a string, the way TextGeometry lays glyphs out
-  const advance = (str, s) =>
-    [...str].reduce((w, ch) => w + (font.data.glyphs[ch]?.ha ?? 0), 0) * (s / font.data.resolution);
 
-  const gutSize = size * 1.3;
-  const synSize = size * 0.95;
-  const gut = make('gut', gutSize, 0.34);
-  const syn = make('SYNBIO', synSize, 0.3);
-
-  // --- SYNBIO colours: white -> cyan top to bottom, the "O" cyan -> lime ---
-  const sb = syn.boundingBox;
-  const oStart = advance('SYNBI', synSize);
-  const oEnd = sb.max.x;
-  const top = new THREE.Color('#ffffff');
-  const bottom = new THREE.Color('#38c6ff');
-  const oFrom = new THREE.Color('#5fe0ff');
-  const oTo = new THREE.Color('#b6f01e');
-  const pos = syn.attributes.position;
-  const colors = new Float32Array(pos.count * 3);
-  const c = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const t = (pos.getY(i) - sb.min.y) / (sb.max.y - sb.min.y);
-    if (x >= oStart - synSize * 0.02) c.copy(oFrom).lerp(oTo, THREE.MathUtils.clamp((x - oStart) / (oEnd - oStart), 0, 1));
-    else c.copy(bottom).lerp(top, THREE.MathUtils.smoothstep(t, 0.15, 0.85));
-    c.toArray(colors, i * 3);
+  // body: stacked silhouette slices, darker toward the back
+  const front = new THREE.Color('#1a3fd0');
+  const back = new THREE.Color('#06106a');
+  for (let i = 0; i < LOGO_LAYERS; i++) {
+    const t = i / (LOGO_LAYERS - 1);
+    const mat = new THREE.MeshBasicMaterial({
+      map: silTex,
+      color: front.clone().lerp(back, t),
+      alphaTest: 0.5,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+      clippingPlanes,
+    });
+    ring.inner.add(new THREE.Mesh(place(-depth * (0.05 + 0.95 * t)), mat));
   }
-  syn.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-  // --- layout: SYNBIO below, "gut" above with its "g" overlapping slightly ---
-  const gb = gut.boundingBox;
-  syn.translate(-(sb.min.x + sb.max.x) / 2, -sb.max.y, 0); // top of SYNBIO at y = 0
-  gut.translate(-(gb.min.x + gb.max.x) / 2, synSize * 0.12, synSize * 0.12); // a little in front
-  const blockTop = synSize * 0.12 + gb.max.y;
-  const blockBottom = -(sb.max.y - sb.min.y);
-  const midY = (blockTop + blockBottom) / 2;
-  gut.translate(0, -midY, 0);
-  syn.translate(0, -midY, 0);
-
-  // --- materials ---
-  const outline = new THREE.MeshStandardMaterial({
-    color: '#0a1d9a',
-    emissive: '#0a1d9a',
-    emissiveIntensity: 0.3,
-    metalness: 0.2,
-    roughness: 0.35,
-    side: THREE.DoubleSide,
-    clippingPlanes,
-  });
-  // Brand colours are shown as-is (no tone-mapping, which would wash the
-  // electric blue toward lavender).
-  const gutFace = new THREE.MeshPhysicalMaterial({
+  // face: the artwork itself (soft glow edges kept via transparency)
+  const faceMat = new THREE.MeshBasicMaterial({
+    map: artTex,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.FrontSide,
     toneMapped: false,
-    color: '#0b55ff',
-    emissive: '#0036ff',
-    emissiveIntensity: 0.45,
-    metalness: 0.05,
-    roughness: 0.12,
-    clearcoat: 1,
-    clearcoatRoughness: 0.05,
-    sheen: 0.35, // light cyan rim, kept low so the blue stays vivid (not lavender)
-    sheenColor: '#4fdcff',
-    sheenRoughness: 0.3,
-    side: THREE.DoubleSide,
     clippingPlanes,
   });
-  const synFace = new THREE.MeshPhysicalMaterial({
-    toneMapped: false,
-    color: '#ffffff',
-    vertexColors: true,
-    emissive: '#3fd4ff',
-    emissiveIntensity: 0.1,
-    metalness: 0.05,
-    roughness: 0.15,
-    clearcoat: 1,
-    clearcoatRoughness: 0.05,
-    side: THREE.DoubleSide,
-    clippingPlanes,
-  });
+  const face = new THREE.Mesh(place(0), faceMat);
+  face.renderOrder = 1;
+  ring.inner.add(face);
+  plane.dispose();
 
-  // --- gentle curve in front of the body, like the regular front label ---
-  const w = Math.max(gb.max.x - gb.min.x, sb.max.x - sb.min.x);
-  const bendR = Math.max(radius, w / FRONT_ARC);
-  for (const [geo, face] of [[syn, synFace], [gut, gutFace]]) {
-    const bent = bendAroundCylinder(geo, bendR, 0);
-    bent.translate(0, 0, radius - bendR);
-    ring.inner.add(new THREE.Mesh(bent, [face, outline]));
-    geo.dispose();
-  }
   ring.frontZ = radius;
-  ring.width = 2 * bendR * Math.sin(w / (2 * bendR));
+  ring.width = 2 * bendR * Math.sin(width / (2 * bendR));
   return ring;
 }
 

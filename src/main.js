@@ -17,8 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const BRAND_FONT = 'fredoka_bold'; // Fredoka Bold (OFL), converted for 3D text
-const APP_VERSION = '2.9'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '3.0'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -58,12 +57,22 @@ function scheduleRebuild() {
 }
 async function rebuild() {
   if (!ar) return;
-  const [font, brandFont] = await Promise.all([loadFont(settings.font), loadBrandFont()]);
-  ar.buildContent(settings, font, logo, brandFont);
+  const [font, brandLogo] = await Promise.all([loadFont(settings.font), loadBrandLogo()]);
+  ar.buildContent(settings, font, logo, brandLogo);
 }
 
-// Rounded brand font for the 3D "gut SYNBIO" lettering (only when used)
-const loadBrandFont = () => (settings.ring1.logoText ? loadFont(BRAND_FONT) : Promise.resolve(null));
+// Logo artwork for the 3D "gut SYNBIO" sign (only when used)
+let brandLogoPromise;
+function loadBrandLogo() {
+  if (!settings.ring1.logoText) return Promise.resolve(null);
+  brandLogoPromise ??= new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Could not load the brand logo'));
+    img.src = `${BASE}brand/logo.webp`;
+  });
+  return brandLogoPromise;
+}
 
 const fmtTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -91,12 +100,12 @@ async function start(file = null) {
     recorder = new Recorder($('stage'));
 
     status.textContent = 'Loading 3D text & AI body tracking…';
-    const [font, brandFont] = await Promise.all([
+    const [font, brandLogo] = await Promise.all([
       loadFont(settings.font),
-      loadBrandFont(),
+      loadBrandLogo(),
       tracker.init(settings.model, settings.mask),
     ]);
-    ar.buildContent(settings, font, logo, brandFont);
+    ar.buildContent(settings, font, logo, brandLogo);
     if (import.meta.env.DEV) window.__app = { ar, tracker, camera, gyro, recorder, get settings() { return settings; } };
 
     $('intro').classList.add('hidden');
@@ -405,21 +414,27 @@ function showResult(blob, kind) {
   dl.download = name;
   $('resultInfo').textContent = `${(blob.size / 1048576).toFixed(1)} MB · ${blob.type || ext}`;
 
-  const file = new File([blob], name, { type: blob.type });
-  const canShare = navigator.canShare?.({ files: [file] });
-  $('btnShare').classList.toggle('hidden', !canShare);
-  $('btnShare').onclick = () => navigator.share({ files: [file], title: 'My AR video' }).catch(() => {});
   $('result').classList.remove('hidden');
 
-  // Videos are uploaded straight away so the guest can scan a QR code to get it.
-  if (kind === 'video') startUpload(blob, name);
-  else resetUploadPanel(false);
+  // Videos are uploaded only when the operator taps Submit; then a QR code
+  // lets the guest download it on their own phone.
+  resetUploadPanel(false);
+  pendingUpload = kind === 'video' ? { blob, name } : null;
+  setSubmit(kind === 'video' ? 'Submit' : null);
 }
 
 /* ------------------------------ upload + QR ------------------------------ */
 
 let uploadAbort = null;
-let pendingUpload = null; // { blob, name } of the last video, for Retry
+let pendingUpload = null; // { blob, name } of the video shown on the result screen
+
+/** Show the Submit button with `label`, or hide it (null). */
+function setSubmit(label) {
+  const btn = $('btnSubmit');
+  btn.classList.toggle('hidden', !label);
+  btn.disabled = false;
+  if (label) btn.textContent = label;
+}
 
 function resetUploadPanel(show) {
   uploadAbort?.abort();
@@ -428,14 +443,13 @@ function resetUploadPanel(show) {
   document.querySelector('.result-body').classList.toggle('with-upload', show);
   $('uploadProgress').classList.remove('hidden');
   $('qrBox').classList.add('hidden');
-  $('btnRetryUpload').classList.add('hidden');
   $('uploadBar').style.width = '0%';
   $('uploadStatus').textContent = 'Uploading…';
 }
 
 async function startUpload(blob, name) {
-  pendingUpload = { blob, name };
   resetUploadPanel(true);
+  setSubmit(null);
   const controller = new AbortController();
   uploadAbort = controller;
   const status = $('uploadStatus');
@@ -463,14 +477,14 @@ async function startUpload(blob, name) {
     if (err.name === 'AbortError' || uploadAbort !== controller) return;
     console.warn('Upload failed', err);
     status.textContent = `Upload failed: ${err.message}`;
-    $('btnRetryUpload').classList.remove('hidden');
+    setSubmit('Retry submit');
   } finally {
     clearTimeout(wakeHint);
     if (uploadAbort === controller) uploadAbort = null;
   }
 }
 
-$('btnRetryUpload').addEventListener('click', () => {
+$('btnSubmit').addEventListener('click', () => {
   if (pendingUpload) startUpload(pendingUpload.blob, pendingUpload.name);
 });
 
