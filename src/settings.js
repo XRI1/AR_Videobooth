@@ -6,7 +6,7 @@ export const isMobile =
 
 const STORAGE_KEY = 'ar360.settings.v1';
 // Bump when a one-time change must reach saved settings (see loadSettings).
-const SETTINGS_REV = 4;
+const SETTINGS_REV = 5;
 
 export function defaultSettings() {
   return {
@@ -14,6 +14,7 @@ export function defaultSettings() {
     ring1: {
       enabled: true,
       text: 'GUT GUARDIAN',
+      logoText: true, // show the 3D brand lettering "gut SYNBIO" instead of the text above
       mode: 'front', // 'front' = static label in front of the body, 'orbit' = spins around
       color: '#1a73e8',
       edge: '#ffffff',
@@ -105,6 +106,9 @@ export function loadSettings() {
     }
     if (saved && (saved.rev ?? 1) < 4) {
       s.mic = false; // rev 4: videos are recorded without audio
+    }
+    if (saved && (saved.rev ?? 1) < 5) {
+      s.ring1.logoText = true; // rev 5: 3D text is now the "gut SYNBIO" brand lettering
     }
     if (saved && saved.rev !== SETTINGS_REV) {
       s.rev = SETTINGS_REV;

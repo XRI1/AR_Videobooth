@@ -65,7 +65,8 @@
     <div class="drawer-body">
       <fieldset>
         <legend><label><input type="checkbox" data-key="ring1.enabled" /> Main text ring</label></legend>
-        <label>Text <input type="text" data-key="ring1.text" maxlength="40" /></label>
+        <label class="check"><input type="checkbox" data-key="ring1.logoText" /> Brand 3D lettering "gut SYNBIO"</label>
+        <label>Text (when brand lettering is off) <input type="text" data-key="ring1.text" maxlength="40" /></label>
         <label>Motion
           <select data-key="ring1.mode">
             <option value="front">Static in front of the person</option>
@@ -172,8 +173,22 @@
   <section id="result" class="overlay brand-bg hidden">
     <div class="result-card">
       <img class="result-logo" src="./brand/logo.webp" alt="Gut Synbio" />
-      <video id="resultVideo" playsinline controls loop></video>
-      <img id="resultImage" alt="Captured photo" class="hidden" />
+      <div class="result-body">
+        <video id="resultVideo" playsinline controls loop></video>
+        <img id="resultImage" alt="Captured photo" class="hidden" />
+        <!-- uploads the video and shows a QR code the guest scans to download it -->
+        <div id="uploadPanel" class="upload-panel hidden" aria-live="polite">
+          <div id="uploadProgress" class="upload-progress">
+            <div class="progress-track"><span id="uploadBar"></span></div>
+            <p id="uploadStatus">Uploading…</p>
+          </div>
+          <div id="qrBox" class="qr-box hidden">
+            <img id="qrImg" alt="QR code: scan to download your video" />
+            <p class="qr-caption">Scan to download<br />your video</p>
+          </div>
+          <button id="btnRetryUpload" class="btn-ghost hidden" type="button">Retry upload</button>
+        </div>
+      </div>
       <div class="result-actions">
         <button id="btnShare" class="btn-primary">Share</button>
         <a id="btnDownload" class="btn-primary" download>Download</a>

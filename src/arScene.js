@@ -13,7 +13,7 @@
 
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { createTextRing, createBadgeRing, createGlitter, makeBadgeTexture, faceCamera } from './rings.js';
+import { createTextRing, createLogoText, createBadgeRing, createGlitter, makeBadgeTexture, faceCamera } from './rings.js';
 import { FireworksFX } from './fireworks.js';
 import { LightStream, STREAM_HEIGHT } from './stream.js';
 import { OneEuroFilter, damp, wrapAngle, easeOutBack } from './filters.js';
@@ -426,7 +426,7 @@ export class ARScene {
 
   /* ----------------------------- content ----------------------------- */
 
-  buildContent(settings, font, logo) {
+  buildContent(settings, font, logo, brandFont) {
     const prevSpin = {};
     for (const [k, r] of Object.entries(this.rings)) prevSpin[k] = r.spin;
     Object.values(this.rings).forEach((r) => r.dispose());
@@ -441,18 +441,22 @@ export class ARScene {
 
     for (const key of ['ring1', 'ring2']) {
       const c = settings[key];
-      if (!c.enabled || !c.text.trim()) continue;
-      const ring = createTextRing({
-        font,
-        text: c.text,
-        color: c.color,
-        edge: c.edge,
-        size: c.size,
-        radius: c.radius,
-        italic: c.italic,
-        mode: c.mode,
-        clippingPlanes: cp,
-      });
+      const brand = key === 'ring1' && c.logoText && brandFont;
+      if (!c.enabled || (!brand && !c.text.trim())) continue;
+      const ring = brand
+        ? // "gut SYNBIO" brand lettering (static, in front of the body)
+          createLogoText({ font: brandFont, size: c.size, radius: c.radius, clippingPlanes: cp })
+        : createTextRing({
+            font,
+            text: c.text,
+            color: c.color,
+            edge: c.edge,
+            size: c.size,
+            radius: c.radius,
+            italic: c.italic,
+            mode: c.mode,
+            clippingPlanes: cp,
+          });
       ring.speed = c.speed;
       ring.height = c.height;
       this.rings[key] = ring;

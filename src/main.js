@@ -12,11 +12,13 @@ import { Gyro } from './gyro.js';
 import { Recorder } from './recorder.js';
 import { ARScene } from './arScene.js';
 import { WorldLockXR } from './xrLock.js';
+import { uploadVideo } from './uploader.js';
 import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile } from './settings.js';
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '2.7'; // shown in settings to confirm the phone has the latest code
+const BRAND_FONT = 'fredoka_bold'; // Fredoka Bold (OFL), converted for 3D text
+const APP_VERSION = '2.9'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -56,9 +58,12 @@ function scheduleRebuild() {
 }
 async function rebuild() {
   if (!ar) return;
-  const font = await loadFont(settings.font);
-  ar.buildContent(settings, font, logo);
+  const [font, brandFont] = await Promise.all([loadFont(settings.font), loadBrandFont()]);
+  ar.buildContent(settings, font, logo, brandFont);
 }
+
+// Rounded brand font for the 3D "gut SYNBIO" lettering (only when used)
+const loadBrandFont = () => (settings.ring1.logoText ? loadFont(BRAND_FONT) : Promise.resolve(null));
 
 const fmtTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -86,8 +91,12 @@ async function start(file = null) {
     recorder = new Recorder($('stage'));
 
     status.textContent = 'Loading 3D text & AI body tracking…';
-    const [font] = await Promise.all([loadFont(settings.font), tracker.init(settings.model, settings.mask)]);
-    ar.buildContent(settings, font, logo);
+    const [font, brandFont] = await Promise.all([
+      loadFont(settings.font),
+      loadBrandFont(),
+      tracker.init(settings.model, settings.mask),
+    ]);
+    ar.buildContent(settings, font, logo, brandFont);
     if (import.meta.env.DEV) window.__app = { ar, tracker, camera, gyro, recorder, get settings() { return settings; } };
 
     $('intro').classList.add('hidden');
@@ -401,9 +410,73 @@ function showResult(blob, kind) {
   $('btnShare').classList.toggle('hidden', !canShare);
   $('btnShare').onclick = () => navigator.share({ files: [file], title: 'My AR video' }).catch(() => {});
   $('result').classList.remove('hidden');
+
+  // Videos are uploaded straight away so the guest can scan a QR code to get it.
+  if (kind === 'video') startUpload(blob, name);
+  else resetUploadPanel(false);
 }
 
+/* ------------------------------ upload + QR ------------------------------ */
+
+let uploadAbort = null;
+let pendingUpload = null; // { blob, name } of the last video, for Retry
+
+function resetUploadPanel(show) {
+  uploadAbort?.abort();
+  uploadAbort = null;
+  $('uploadPanel').classList.toggle('hidden', !show);
+  document.querySelector('.result-body').classList.toggle('with-upload', show);
+  $('uploadProgress').classList.remove('hidden');
+  $('qrBox').classList.add('hidden');
+  $('btnRetryUpload').classList.add('hidden');
+  $('uploadBar').style.width = '0%';
+  $('uploadStatus').textContent = 'Uploading…';
+}
+
+async function startUpload(blob, name) {
+  pendingUpload = { blob, name };
+  resetUploadPanel(true);
+  const controller = new AbortController();
+  uploadAbort = controller;
+  const status = $('uploadStatus');
+  const sizeMb = (blob.size / 1048576).toFixed(1);
+  let sent = 0;
+  // The free server tier sleeps when idle; say so instead of looking stuck.
+  const wakeHint = setTimeout(() => {
+    if (sent < 1) status.textContent = 'Waking up the server… this can take up to a minute the first time.';
+  }, 8000);
+  try {
+    const res = await uploadVideo(blob, name, {
+      signal: controller.signal,
+      onProgress: (f) => {
+        sent = f;
+        $('uploadBar').style.width = `${Math.round(f * 100)}%`;
+        status.textContent = f < 1 ? `Uploading… ${Math.round(f * 100)}% of ${sizeMb} MB` : 'Processing…';
+      },
+    });
+    if (uploadAbort !== controller) return; // a newer upload replaced this one
+    $('qrImg').src = res.qrCode;
+    $('qrImg').dataset.url = res.viewUrl || '';
+    $('uploadProgress').classList.add('hidden');
+    $('qrBox').classList.remove('hidden');
+  } catch (err) {
+    if (err.name === 'AbortError' || uploadAbort !== controller) return;
+    console.warn('Upload failed', err);
+    status.textContent = `Upload failed: ${err.message}`;
+    $('btnRetryUpload').classList.remove('hidden');
+  } finally {
+    clearTimeout(wakeHint);
+    if (uploadAbort === controller) uploadAbort = null;
+  }
+}
+
+$('btnRetryUpload').addEventListener('click', () => {
+  if (pendingUpload) startUpload(pendingUpload.blob, pendingUpload.name);
+});
+
 $('btnCloseResult').addEventListener('click', () => {
+  resetUploadPanel(false); // cancels an upload still in progress
+  pendingUpload = null;
   const vid = $('resultVideo');
   vid.pause();
   vid.removeAttribute('src');

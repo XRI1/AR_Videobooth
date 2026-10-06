@@ -296,6 +296,45 @@ fieldset .btn-ghost { margin-top: 10px; font-size: 13px; padding: 8px 14px; }
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 0 0 6px var(--royal-deep), 0 0 36px rgba(63, 212, 255, 0.5);
 }
 .result-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+
+/* video + upload/QR side by side */
+.result-body { width: 100%; display: flex; align-items: center; justify-content: center; gap: 14px; }
+.result-body video { min-width: 0; flex: 0 1 auto; }
+.result-body.with-upload video { max-width: 52%; }
+.upload-panel {
+  flex: 0 0 auto; width: min(42vw, 230px);
+  display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
+}
+.upload-progress { width: 100%; }
+.progress-track {
+  height: 10px; border-radius: 999px; overflow: hidden;
+  background: rgba(3, 8, 67, 0.6); box-shadow: var(--glow);
+}
+.progress-track span {
+  display: block; height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--cyan), var(--lime));
+  transition: width 0.2s ease;
+}
+#uploadStatus { margin: 10px 0 0; font-size: 13px; line-height: 1.4; color: #d6e6ff; }
+.qr-box { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.qr-box img {
+  width: 100%; max-width: 210px; aspect-ratio: 1; image-rendering: pixelated;
+  background: #fff; padding: 8px; border-radius: 16px;
+  box-shadow: 0 0 0 3px var(--royal-deep), 0 0 26px rgba(182, 240, 30, 0.55);
+  animation: qr-pop 0.4s ease-out;
+}
+@keyframes qr-pop { from { transform: scale(0.85); opacity: 0; } to { transform: none; opacity: 1; } }
+.qr-caption {
+  margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 15px; line-height: 1.25;
+  color: #fff; text-shadow: 0 0 10px rgba(63, 212, 255, 0.7);
+}
+
+/* narrow screens: stack the QR under the video */
+@media (max-width: 340px) {
+  .result-body { flex-direction: column; }
+  .result-body.with-upload video { max-width: 100%; max-height: 40dvh; }
+  .upload-panel { width: min(70vw, 220px); }
+}
 #resultInfo { color: #d6e6ff; }
 
 /* ---------- toast ---------- */
