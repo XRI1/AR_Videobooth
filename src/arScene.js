@@ -445,7 +445,7 @@ export class ARScene {
       if (!c.enabled || (!brand && !c.text.trim())) continue;
       const ring = brand
         ? // "gut SYNBIO" brand lettering (static, in front of the body)
-          createLogoText({ image: brandLogo, size: c.size, radius: c.radius, clippingPlanes: cp })
+          createLogoText({ image: brandLogo.logo, badges: brandLogo.badges, size: c.size, radius: c.radius, clippingPlanes: cp })
         : createTextRing({
             font,
             text: c.text,

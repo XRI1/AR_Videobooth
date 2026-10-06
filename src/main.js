@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '3.1'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '3.2'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -61,16 +61,22 @@ async function rebuild() {
   ar.buildContent(settings, font, logo, brandLogo);
 }
 
-// Logo artwork for the 3D "gut SYNBIO" sign (only when used)
+// Artwork for the 3D "gut SYNBIO" sign and its side badges (only when used)
 let brandLogoPromise;
-function loadBrandLogo() {
-  if (!settings.ring1.logoText) return Promise.resolve(null);
-  brandLogoPromise ??= new Promise((resolve, reject) => {
+const loadImage = (file) =>
+  new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Could not load the brand logo'));
-    img.src = `${BASE}brand/logo.webp`;
+    img.onerror = () => reject(new Error(`Could not load ${file}`));
+    img.src = `${BASE}brand/${file}`;
   });
+function loadBrandLogo() {
+  if (!settings.ring1.logoText) return Promise.resolve(null);
+  brandLogoPromise ??= Promise.all([
+    loadImage('logo.webp'),
+    loadImage('badge-prebiotic.webp').catch(() => null), // badges are optional
+    loadImage('badge-probiotic.webp').catch(() => null),
+  ]).then(([logo, left, right]) => ({ logo, badges: { left, right } }));
   return brandLogoPromise;
 }
 

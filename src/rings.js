@@ -151,33 +151,60 @@ export function createTextRing({ font, text, color, edge, size, radius, italic, 
 }
 
 /**
- * Brand logo "gut SYNBIO" in 3D. The front face is the real logo artwork
- * (exact colours, shapes and outline, tagline cropped off) and a solid navy
- * body is extruded behind it from the logo's silhouette, so it reads as a
- * thick 3D sign when you walk around it. Static and gently curved in front of
- * the body, like the regular front label (same `frontZ` / `width` contract).
+ * Brand logo "gut SYNBIO" in 3D, with optional badges either side (GOS
+ * Prebiotic on the left, Probiotic on the right). Each sign's front face is
+ * the real artwork (exact colours and shapes) and a solid body is extruded
+ * behind it from the artwork's silhouette, so it reads as a thick 3D sign when
+ * you walk around it. Everything sits on one gentle curve in front of the
+ * body, like the regular front label (same `frontZ` / `width` contract).
  */
 const LOGO_CROP = 466 / 518; // keep the lettering, drop the small tagline underneath
-const LOGO_LAYERS = 14; // slices that make up the extruded body
+const SIGN_LAYERS = 14; // slices that make up each extruded body
+const BADGE_HEIGHT = 1.08; // badge height relative to the logo's height
+const BADGE_GAP = 0.03; // gap between logo and badge, in `size` units
 
-export function createLogoText({ image, size, radius, clippingPlanes }) {
+export function createLogoText({ image, badges = {}, size, radius, clippingPlanes }) {
   const ring = new OrbitRing();
   ring.direction = -1;
   ring.static = true;
-  ring.ownsTexture = true;
+  ring.extraTextures = [];
 
-  // --- textures: the artwork, and its silhouette in navy for the sides ---
-  const W = image.naturalWidth;
-  const H = Math.round(image.naturalHeight * LOGO_CROP);
+  // --- layout along the curve (x = arc length, 0 = centre) ---
+  const logoW = size * 3.2;
+  const logoH = (logoW * Math.round(image.naturalHeight * LOGO_CROP)) / image.naturalWidth;
+  const signs = [{ img: image, crop: LOGO_CROP, w: logoW, x: 0, y: 0, body: ['#1a3fd0', '#06106a'] }];
+  const badgeH = logoH * BADGE_HEIGHT;
+  const gold = ['#e0a516', '#6b4300']; // matches the badges' gold frame
+  let span = logoW;
+  for (const [img, side] of [[badges.left, -1], [badges.right, 1]]) {
+    if (!img) continue;
+    const w = (badgeH * img.naturalWidth) / img.naturalHeight;
+    signs.push({ img, crop: 1, w, x: side * (logoW / 2 + size * BADGE_GAP + w / 2), y: 0, body: gold });
+    span = Math.max(span, 2 * (logoW / 2 + size * BADGE_GAP + w));
+  }
+  const bendR = Math.max(radius, span / (FRONT_ARC * 0.75));
+
+  for (const sign of signs) addExtrudedSign(ring, sign, { bendR, radius, depth: logoW * 0.045, clippingPlanes });
+
+  ring.frontZ = radius;
+  ring.width = 2 * bendR * Math.sin(span / (2 * bendR));
+  return ring;
+}
+
+/** One image sign: artwork face + stacked silhouette slices behind it, bent onto the curve. */
+function addExtrudedSign(ring, { img, crop, w, x, y, body }, { bendR, radius, depth, clippingPlanes }) {
+  // textures: the artwork, and its silhouette in white (tinted per slice)
+  const W = img.naturalWidth;
+  const H = Math.round(img.naturalHeight * crop);
   const art = document.createElement('canvas');
   art.width = W;
   art.height = H;
-  art.getContext('2d').drawImage(image, 0, 0);
+  art.getContext('2d').drawImage(img, 0, 0);
   const sil = document.createElement('canvas');
   sil.width = W;
   sil.height = H;
   const sg = sil.getContext('2d');
-  sg.drawImage(image, 0, 0);
+  sg.drawImage(img, 0, 0);
   sg.globalCompositeOperation = 'source-in';
   sg.fillStyle = '#ffffff';
   sg.fillRect(0, 0, W, H);
@@ -185,30 +212,26 @@ export function createLogoText({ image, size, radius, clippingPlanes }) {
     const t = new THREE.CanvasTexture(cv);
     t.colorSpace = THREE.SRGBColorSpace;
     t.anisotropy = 8;
+    ring.extraTextures.push(t);
     return t;
   };
   const artTex = tex(art);
   const silTex = tex(sil);
-  ring.texture = artTex;
-  ring.extraTextures = [silTex];
 
-  // --- size: `size` is the old letter height; the whole sign is ~3.2x as wide ---
-  const width = size * 3.2;
-  const height = (width * H) / W;
-  const depth = width * 0.045;
-  const bendR = Math.max(radius, width / (FRONT_ARC * 0.75));
-  const plane = new THREE.PlaneGeometry(width, height, 64, 1);
+  const h = (w * H) / W;
+  const plane = new THREE.PlaneGeometry(w, h, 48, 1);
+  plane.translate(0, y, 0);
   const place = (z) => {
-    const g = bendAroundCylinder(plane, bendR, 0);
+    const g = bendAroundCylinder(plane, bendR, x / bendR);
     g.translate(0, 0, radius - bendR + z);
     return g;
   };
 
   // body: stacked silhouette slices, darker toward the back
-  const front = new THREE.Color('#1a3fd0');
-  const back = new THREE.Color('#06106a');
-  for (let i = 0; i < LOGO_LAYERS; i++) {
-    const t = i / (LOGO_LAYERS - 1);
+  const front = new THREE.Color(body[0]);
+  const back = new THREE.Color(body[1]);
+  for (let i = 0; i < SIGN_LAYERS; i++) {
+    const t = i / (SIGN_LAYERS - 1);
     const mat = new THREE.MeshBasicMaterial({
       map: silTex,
       color: front.clone().lerp(back, t),
@@ -220,22 +243,20 @@ export function createLogoText({ image, size, radius, clippingPlanes }) {
     ring.inner.add(new THREE.Mesh(place(-depth * (0.05 + 0.95 * t)), mat));
   }
   // face: the artwork itself (soft glow edges kept via transparency)
-  const faceMat = new THREE.MeshBasicMaterial({
-    map: artTex,
-    transparent: true,
-    depthWrite: false,
-    side: THREE.FrontSide,
-    toneMapped: false,
-    clippingPlanes,
-  });
-  const face = new THREE.Mesh(place(0), faceMat);
+  const face = new THREE.Mesh(
+    place(0),
+    new THREE.MeshBasicMaterial({
+      map: artTex,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.FrontSide,
+      toneMapped: false,
+      clippingPlanes,
+    }),
+  );
   face.renderOrder = 1;
   ring.inner.add(face);
   plane.dispose();
-
-  ring.frontZ = radius;
-  ring.width = 2 * bendR * Math.sin(width / (2 * bendR));
-  return ring;
 }
 
 /** Draws a round medallion badge ("20 YEARS" style) to a canvas texture. */

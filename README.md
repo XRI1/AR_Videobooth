@@ -2,11 +2,12 @@
 
 A browser-based AR video booth. Point a phone at a person and the 3D brand logo, rising glass capsules and cubes, sparklers and glitter appear around them, with the person correctly cut out so effects can pass behind their body. Press **Lock** to pin everything to a real spot in the room, walk the phone around the person and record. Tap **Submit** to upload the video, and a **QR code** appears so the guest can scan it and download the clip to their own phone. No app install needed.
 
-Current version: **3.1**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
+Current version: **3.2**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
 
 ## Features
 
 - **3D brand logo "gut SYNBIO".** The front face is the real logo artwork ([public/brand/logo.webp](public/brand/logo.webp), with the small tagline cropped off), so colours, shapes and outline match the brand exactly. A solid navy body is extruded behind it from the logo's outline, so it looks like a thick 3D sign as you walk around. It is gently curved in front of the person. Replace `logo.webp` to change it. Untick **Brand 3D lettering** in settings to use your own 3D text instead (text, colours, italic, height, distance, size, font).
+- **3D badges beside the logo:** the **GOS Prebiotic** badge sits to the left of the logo and the **Probiotic** badge to the right, on the same curve. Like the logo, each shows the real artwork ([public/brand/badge-prebiotic.webp](public/brand/badge-prebiotic.webp), [public/brand/badge-probiotic.webp](public/brand/badge-probiotic.webp)) on a solid gold extruded body. Replace those files to change them, or delete one to hide it. The whole group shrinks slightly if needed to stay inside the portrait frame.
 - **Real occlusion.** A person segmentation mask cuts the person out of the video, so anything behind them is hidden by their body.
 - **Smooth body tracking.** Pose tracking keeps the text on the person's torso and scales it with their size. One Euro filtering removes jitter, and the text glides at 60 fps between 30 fps detections. It pops in when a person appears and shrinks away if they leave the frame.
 - **Lock button.** Pins the text and effects in the real room (see below). It uses ARCore surface tracking on supported Android phones and a motion-sensor fallback elsewhere.
@@ -119,7 +120,7 @@ All content lives under one root group. Normally it sits in camera space. In AR 
 | [src/main.js](src/main.js) | App flow, UI, settings wiring, render loop, Lock/Unlock |
 | [src/arScene.js](src/arScene.js) | Three.js compositor, body anchoring, clipping, AR placement |
 | [src/xrLock.js](src/xrLock.js) | WebXR/ARCore session: camera image, floor hit-test, anchors |
-| [src/rings.js](src/rings.js) | Curved 3D text, 3D brand logo, badges, glitter |
+| [src/rings.js](src/rings.js) | Curved 3D text, 3D brand logo + side badges, glitter |
 | [src/stream.js](src/stream.js) | 3D glass capsules/cubes/spheres rising around the person |
 | [src/fireworks.js](src/fireworks.js) | Sparkler fountain particles |
 | [src/tracker.js](src/tracker.js) | MediaPipe pose + segmentation |
