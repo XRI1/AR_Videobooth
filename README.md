@@ -2,7 +2,7 @@
 
 A browser-based AR video booth. Point a phone at a person and the 3D brand logo, rising glass capsules and cubes, sparklers and glitter appear around them, with the person correctly cut out so effects can pass behind their body. Press **Lock** to pin everything to a real spot in the room, walk the phone around the person and record. Tap **Submit** to upload the video, and a **QR code** appears so the guest can scan it and download the clip to their own phone. No app install needed.
 
-Current version: **3.2**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
+Current version: **3.3**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
 
 ## Features
 
@@ -11,7 +11,7 @@ Current version: **3.2**. It's shown at the top of **Settings → Camera & track
 - **Real occlusion.** A person segmentation mask cuts the person out of the video, so anything behind them is hidden by their body.
 - **Smooth body tracking.** Pose tracking keeps the text on the person's torso and scales it with their size. One Euro filtering removes jitter, and the text glides at 60 fps between 30 fps detections. It pops in when a person appears and shrinks away if they leave the frame.
 - **Lock button.** Pins the text and effects in the real room (see below). It uses ARCore surface tracking on supported Android phones and a motion-sensor fallback elsewhere.
-- **3D objects rising around the person:** glossy glass **capsules**, blue and lime-green **cubes** and spheres rise straight up out of the floor at spots all around the person (a new random spot each time they rise again; they never move around the body), then fade out between the hips and chest (never reaching the head). They keep the same distance from the body as the 3D text but never come closer than the body and arms, the layout freezes when you press Lock (no jump), and they pass behind the body (hidden by the cut-out). Choose capsules, cubes or both in **Settings → Effects**.
+- **Prebiotic and probiotic streams:** like the brand key visual, glossy glass objects rise out of the floor in **two separate streams**. Blue and lime-green **prebiotic cubes** rise on the left, under the GOS Prebiotic badge, and blue **probiotic capsules** rise on the right, under the Probiotic badge, with small bubbles in both. Each stream fans slightly outward as it rises, then fades out between the hips and chest (never reaching the head). Each object rises from a new random spot inside its stream; nothing moves around the body. They keep the same distance from the body as the 3D logo, never come closer than the body and arms, freeze when you press Lock (no jump), and pass behind the body (hidden by the cut-out). To swap the sides, set `CAPSULE_SIDE` to `-1` in [src/stream.js](src/stream.js). Choosing only capsules or only cubes in **Settings → Effects** fills both sides with that kind.
 - **FX:** sparkler fountains at the person's feet and twinkling glitter. (The firework bursts that shot up and exploded were removed in 3.1.)
 - **Recording as MP4:** captures the composited AR canvas as a standard **MP4 (H.264 video)**. Videos are silent by default (no microphone permission asked); tick **Record sound with the video** in settings to add AAC audio that every phone, gallery and messaging app plays. It uses the phone's hardware encoder through WebCodecs plus [mp4-muxer](https://github.com/Vanilagy/mp4-muxer), which works in Chrome on Android, where the built-in recorder only makes WebM. It falls back to the browser's own MP4 recorder (Safari/iOS), and only then to WebM. Also has photo capture, download and native share on phones. Recording keeps running through Lock and Unlock.
 - **Submit + QR download:** after recording, the result screen shows **Submit**, **Download** and **Retake**. **Submit** uploads the MP4 to the [AR backend](https://github.com/Zihan231/AR_Backend) with a live progress bar. When it finishes, a QR code appears next to the video; the guest scans it to open a download page on their own phone. If the upload fails, the reason is shown and the button changes to **Retry submit**. **Retake** discards the clip and cancels any upload still running. Nothing is uploaded unless you tap Submit, and photos are never uploaded.
@@ -121,7 +121,7 @@ All content lives under one root group. Normally it sits in camera space. In AR 
 | [src/arScene.js](src/arScene.js) | Three.js compositor, body anchoring, clipping, AR placement |
 | [src/xrLock.js](src/xrLock.js) | WebXR/ARCore session: camera image, floor hit-test, anchors |
 | [src/rings.js](src/rings.js) | Curved 3D text, 3D brand logo + side badges, glitter |
-| [src/stream.js](src/stream.js) | 3D glass capsules/cubes/spheres rising around the person |
+| [src/stream.js](src/stream.js) | Prebiotic cube and probiotic capsule streams rising beside the person |
 | [src/fireworks.js](src/fireworks.js) | Sparkler fountain particles |
 | [src/tracker.js](src/tracker.js) | MediaPipe pose + segmentation |
 | [src/filters.js](src/filters.js) | One Euro filter and easing helpers |

@@ -1,7 +1,8 @@
-// 3D object effect: glossy glass capsules, cubes and spheres (blue /
-// lime-green, like a probiotic / data-flow visual) rise straight up out of the
-// floor at spots all around the person and fade out between hip and chest
-// height. They never move around the body.
+// 3D object effect: glossy glass capsules (probiotic) and cubes (prebiotic),
+// with small bubbles, rise out of the floor in two separate streams, like the
+// brand key visual: capsules on one side of the person, cubes on the other.
+// Each stream fans slightly outward as it rises and fades out between hip and
+// chest height. Nothing moves around the body.
 //
 // Everything is in torso units (scaled with the person by the scene) and uses
 // the scene's clipping plane, so objects pass behind the body and come back
@@ -90,6 +91,15 @@ const rand = (a, b) => a + Math.random() * (b - a);
 /** Rise height from the floor (torso units: hips ~1.8 up, chest ~2.4). */
 export const STREAM_HEIGHT = 3.2;
 const RADIUS_RANGE = [0.9, 1.08]; // spread of distances from the body axis (x radius)
+/**
+ * Side of the capsule (probiotic) stream: +1 = right on screen, under the
+ * Probiotic badge; cubes (prebiotic) rise on the left under the GOS Prebiotic
+ * badge. Set to -1 to swap (capsules left, as in the key visual).
+ */
+const CAPSULE_SIDE = 1;
+const LANE_CENTER = Math.PI / 2 - 0.55; // stream angle from the front: to the side, toward the camera
+const LANE_SPREAD = 0.6; // angular width of each stream (radians)
+const FLARE = 0.3; // streams lean outward as they rise (radius grows by this x rise)
 
 /** Repeatable pseudo-random 0..1 from a number (new spot for every rise). */
 function hash01(n) {
@@ -123,7 +133,7 @@ export class LightStream {
     this.fadeStart = 0.55;
     this.fadeEnd = 0.75;
     this.radius = radius;
-    this.maxRadius = radius * RADIUS_RANGE[1];
+    this.maxRadius = radius * RADIUS_RANGE[1] * (1 + FLARE * 0.8); // widest point before fading
     this.minRadius = radius * RADIUS_RANGE[0];
     this._materials = [];
     this._geometries = [];
@@ -143,7 +153,7 @@ export class LightStream {
     };
     this.items = [];
     let seed = 0;
-    const add = (geo, mat, count, kind, colorFn, sizeRange) => {
+    const add = (geo, mat, count, kind, colorFn, sizeRange, sideFn) => {
       if (!count) return;
       this._geometries.push(geo);
       // per-object fade (glass shader `aFade`)
@@ -160,6 +170,7 @@ export class LightStream {
           mesh,
           index: i,
           kind,
+          side: sideFn(i),
           seed: ++seed * 7.31,
           s0: Math.random(),
           speed: rand(0.12, 0.2), // floor -> fade-out in ~4-7 s
@@ -172,10 +183,13 @@ export class LightStream {
       this.outer.add(mesh);
     };
 
-    const caps = style === 'cubes' ? 0 : style === 'capsules' ? 16 : 10;
-    const cubes = style === 'capsules' ? 0 : style === 'cubes' ? 20 : 12;
+    const caps = style === 'cubes' ? 0 : style === 'capsules' ? 16 : 12;
+    const cubes = style === 'capsules' ? 0 : style === 'cubes' ? 20 : 14;
+    // with only one kind, it fills both sides
+    const capSide = (i) => (style === 'capsules' ? (i % 2 ? 1 : -1) : CAPSULE_SIDE);
+    const cubeSide = (i) => (style === 'cubes' ? (i % 2 ? 1 : -1) : -CAPSULE_SIDE);
     const blueish = () => (Math.random() < 0.5 ? BLUE : CYAN).clone().lerp(BLUE, 0.3);
-    add(new THREE.CapsuleGeometry(0.075, 0.2, 6, 16), glass(0), caps, 'capsule', blueish, [0.8, 1.3]);
+    add(new THREE.CapsuleGeometry(0.075, 0.2, 6, 16), glass(0), caps, 'capsule', blueish, [0.8, 1.3], capSide);
     add(
       new THREE.BoxGeometry(0.15, 0.15, 0.15),
       glass(1),
@@ -183,6 +197,7 @@ export class LightStream {
       'cube',
       (i) => (i % 2 ? LIME.clone() : blueish()),
       [0.6, 1.3],
+      cubeSide,
     );
     add(
       new THREE.SphereGeometry(0.03, 14, 10),
@@ -191,6 +206,7 @@ export class LightStream {
       'sphere',
       () => (Math.random() < 0.15 ? LIME.clone() : blueish()),
       [0.6, 1.5],
+      (i) => (i % 2 ? 1 : -1), // bubbles in both streams
     );
 
     this.update(0);
@@ -206,9 +222,9 @@ export class LightStream {
   }
 
   /**
-   * Advance the animation. Objects rise straight up from the floor at a spot
-   * around the person (a new random spot each time they rise again); they do
-   * not move around the body.
+   * Advance the animation. Objects rise from the floor in their side's stream
+   * (a new random spot in the stream each time they rise again), leaning
+   * outward as they go up; they do not move around the body.
    * @param {number} dt
    * @param {number} sx  side-to-side scale of the circle (fits the frame)
    * @param {number} sz  front/back scale of the circle (matches the text's distance)
@@ -225,9 +241,10 @@ export class LightStream {
       const progress = it.s0 + t * it.speed;
       const rise = Math.floor(progress); // which rise this is (new spot each time)
       const s = (progress - rise) * span;
-      // spot around the person for this rise: angle + distance from the body axis
-      const angle = hash01(it.seed + rise * 1.37) * TAU;
-      const r = this.radius * THREE.MathUtils.lerp(RADIUS_RANGE[0], RADIUS_RANGE[1], hash01(it.seed * 3.1 + rise));
+      // spot in this side's stream for this rise: angle + distance from the body axis
+      const angle = it.side * (LANE_CENTER + (hash01(it.seed + rise * 1.37) - 0.5) * LANE_SPREAD);
+      const r0 = this.radius * THREE.MathUtils.lerp(RADIUS_RANGE[0], RADIUS_RANGE[1], hash01(it.seed * 3.1 + rise));
+      const r = r0 * (1 + FLARE * s); // fan outward as it rises, like the key visual's light streams
       _p.set(Math.sin(angle) * r, s * STREAM_HEIGHT, Math.cos(angle) * r).applyQuaternion(_qYaw);
       _p.x *= sx;
       _p.z *= sz;
