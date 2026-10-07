@@ -6,13 +6,13 @@ export const isMobile =
 
 const STORAGE_KEY = 'ar360.settings.v1';
 // Bump when a one-time change must reach saved settings (see loadSettings).
-const SETTINGS_REV = 6;
+const SETTINGS_REV = 7;
 
 export function defaultSettings() {
   return {
     rev: SETTINGS_REV,
     show3d: true, // false hides every 3D element (only the camera image is shown and recorded)
-    overlay: true, // 2D brand banner across the top of the screen and the recording
+    overlay: false, // 2D brand banner above the record button (also in the recording); off by default
     ring1: {
       enabled: true,
       text: 'GUT GUARDIAN',
@@ -114,6 +114,9 @@ export function loadSettings() {
     }
     if (saved && (saved.rev ?? 1) < 6) {
       s.fx.fireworks = false; // rev 6: firework bursts removed
+    }
+    if (saved && (saved.rev ?? 1) < 7) {
+      s.overlay = false; // rev 7: the 2D banner starts hidden
     }
     if (saved && saved.rev !== SETTINGS_REV) {
       s.rev = SETTINGS_REV;

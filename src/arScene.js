@@ -34,7 +34,8 @@ const APPEAR_TIME = 0.55; // seconds for the pop-in / shrink-out animation
 const TURN_RATE = 12; // smoothing of lock / gyro rotations (1/s)
 const OVERLAY_WIDTH = 0.94; // banner width as a share of the frame width
 const OVERLAY_MAX_HEIGHT = 0.18; // ...but never taller than this share of the frame height
-const OVERLAY_TOP = 0.085; // gap from the top edge (clears the HUD buttons), share of frame height
+const OVERLAY_BOTTOM_PX = 128; // gap from the bottom edge in CSS px: sits just above the record button
+const OVERLAY_BOTTOM_MAX = 0.3; // ...but never higher than this share of the frame height
 const _overlaySize = new THREE.Vector2();
 const STREAM_FILL = 0.92; // share of the frame half-width the light stream may use
 // closest the stream may come to the body axis (torso units): body + arms half-width
@@ -718,13 +719,15 @@ export class ARScene {
     const m = this.overlayMesh;
     if (!m || !this.overlayVisible) return;
     // size/position in clip space (-1..1): fixed share of the frame width,
-    // just below the top HUD buttons on screen
+    // just above the record button on screen
     const buf = this.renderer.getDrawingBufferSize(_overlaySize);
     const frameAspect = buf.x / buf.y;
     const w = Math.min(OVERLAY_WIDTH, (OVERLAY_MAX_HEIGHT * m.userData.aspect) / frameAspect); // keep it short on wide screens
     const h = (w * frameAspect) / m.userData.aspect;
     m.scale.set(w, h, 1); // plane is 2x2, so scale = half-size * 2 / 2
-    m.position.set(0, 1 - 2 * OVERLAY_TOP - h, 0);
+    const cssH = this.renderer.domElement.clientHeight || buf.y;
+    const bottom = Math.min(OVERLAY_BOTTOM_MAX, OVERLAY_BOTTOM_PX / cssH); // share of frame height
+    m.position.set(0, -1 + 2 * bottom + h, 0);
     this.renderer.render(this.overlayScene, this.quadCam);
   }
 
