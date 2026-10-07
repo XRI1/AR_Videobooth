@@ -2,7 +2,7 @@
 
 A browser-based AR video booth. Point a phone at a person and the 3D brand logo, rising glass capsules and cubes, sparklers and glitter appear around them, with the person correctly cut out so effects can pass behind their body. Press **Lock** to pin everything to a real spot in the room, walk the phone around the person and record. Tap **Submit** to upload the video, and a **QR code** appears so the guest can scan it and download the clip to their own phone. No app install needed.
 
-Current version: **3.8**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
+Current version: **3.9**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
 
 ## Features
 
@@ -16,7 +16,7 @@ Current version: **3.8**. It's shown at the top of **Settings → Camera & track
 - **Recording as MP4:** captures the composited AR canvas as a standard **MP4 (H.264 video)**. Videos are silent by default (no microphone permission asked); tick **Record sound with the video** in settings to add AAC audio that every phone, gallery and messaging app plays. It uses the phone's hardware encoder through WebCodecs plus [mp4-muxer](https://github.com/Vanilagy/mp4-muxer), which works in Chrome on Android, where the built-in recorder only makes WebM. It falls back to the browser's own MP4 recorder (Safari/iOS), and only then to WebM. Also has photo capture, download and native share on phones. Recording keeps running through Lock and Unlock.
 - **Submit + QR download:** after recording, the result screen shows **Submit**, **Download** and **Retake**. **Submit** uploads the MP4 to the [AR backend](https://github.com/Zihan231/AR_Backend) with a live progress bar. When it finishes, a QR code appears next to the video; the guest scans it to open a download page on their own phone. If the upload fails, the reason is shown and the button changes to **Retry submit**. **Retake** discards the clip and cancels any upload still running. Nothing is uploaded unless you tap Submit, and photos are never uploaded.
 - **2D logo banner:** a flat brand banner ([public/brand/overlay.webp](public/brand/overlay.webp): probiotic stream, gut SYNBIO logo with tagline, prebiotic stream) can be drawn edge to edge along the bottom of the frame; the record and capture buttons move up above it while it's shown. It's part of the AR canvas, so when it's on it's always in the recorded video and photos, even while locked or in AR mode. It's **hidden by default**; tick **Show 2D logo banner** at the top of the settings panel to show it. Replace the file to change it (transparent margins are trimmed automatically).
-- **Hide all 3D:** untick **Show 3D elements** at the top of the settings panel to hide the logo, icons, rising objects and sparkles; the camera image is still shown and recorded. Tick it again to bring everything back.
+- **3D switches:** at the top of the settings panel, **Show 3D elements** hides the 3D logo, side icons, sparkles and fountains, and **Show rising 3D objects** separately controls the capsules, cubes and bubbles rising from the floor. So you can show only the rising objects, only the logo, both or neither. The camera image (and the 2D banner, if on) is always shown and recorded.
 - **Offline-friendly:** settings are saved per device, and the ML models and runtime are self-hosted, so nothing loads from third-party CDNs at the venue.
 
 ## Brand design

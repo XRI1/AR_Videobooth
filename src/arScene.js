@@ -641,7 +641,16 @@ export class ARScene {
   }
 
   renderContent(occlusion = true) {
-    if (this.contentVisible) this.render3D(occlusion); // 3D hidden: camera image only
+    if (this.contentVisible) {
+      this.render3D(occlusion);
+    } else if (this.stream) {
+      // "Show 3D elements" off hides the logo, icons and sparkles, but the
+      // rising objects have their own switch: draw only them
+      const hidden = this.root.children.filter((o) => o !== this.stream.outer && o.visible);
+      hidden.forEach((o) => (o.visible = false));
+      this.render3D(occlusion);
+      hidden.forEach((o) => (o.visible = true));
+    } // else: camera image only
     this.renderOverlay();
   }
 
