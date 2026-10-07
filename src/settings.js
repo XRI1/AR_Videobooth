@@ -12,6 +12,7 @@ export function defaultSettings() {
   return {
     rev: SETTINGS_REV,
     show3d: true, // false hides every 3D element (only the camera image is shown and recorded)
+    overlay: true, // 2D brand banner across the top of the screen and the recording
     ring1: {
       enabled: true,
       text: 'GUT GUARDIAN',

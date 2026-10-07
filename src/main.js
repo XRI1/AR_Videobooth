@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '3.5'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '3.6'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -113,6 +113,8 @@ async function start(file = null) {
     ]);
     ar.buildContent(settings, font, logo, brandLogo);
     ar.contentVisible = settings.show3d;
+    ar.overlayVisible = settings.overlay;
+    loadImage('overlay.webp').then((img) => ar.setOverlay(img)).catch(() => {}); // optional 2D banner
     if (import.meta.env.DEV) window.__app = { ar, tracker, camera, gyro, recorder, get settings() { return settings; } };
 
     $('intro').classList.add('hidden');
@@ -586,6 +588,7 @@ async function onSettingChange(el) {
   if (ring && prop === 'height') return void (ring.height = value);
   if (key === 'arLock') return void updateArCheck();
   if (key === 'show3d') return void (ar.contentVisible = value);
+  if (key === 'overlay') return void (ar.overlayVisible = value);
   if (['tilt', 'occlusion', 'invertGyro', 'fx.fireworks', 'fx.fountains'].includes(key)) return;
 
   if (key === 'model' || key === 'mask') {

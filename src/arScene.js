@@ -32,6 +32,10 @@ const LOCKED_POS_FILTER = [0.25, 0.5];
 const LOST_AFTER = 1.2; // seconds without a person before content hides
 const APPEAR_TIME = 0.55; // seconds for the pop-in / shrink-out animation
 const TURN_RATE = 12; // smoothing of lock / gyro rotations (1/s)
+const OVERLAY_WIDTH = 0.94; // banner width as a share of the frame width
+const OVERLAY_MAX_HEIGHT = 0.18; // ...but never taller than this share of the frame height
+const OVERLAY_TOP = 0.085; // gap from the top edge (clears the HUD buttons), share of frame height
+const _overlaySize = new THREE.Vector2();
 const STREAM_FILL = 0.92; // share of the frame half-width the light stream may use
 // closest the stream may come to the body axis (torso units): body + arms half-width
 // (~0.55) + room for the biggest capsule (~0.25), so nothing passes through the body
@@ -144,6 +148,11 @@ export class ARScene {
     bgMesh.frustumCulled = personMesh.frustumCulled = false;
     this.bgScene.add(bgMesh);
     this.personScene.add(personMesh);
+
+    // 2D brand banner drawn on top of everything (so it is also in recordings)
+    this.overlayScene = new THREE.Scene();
+    this.overlayMesh = null;
+    this.overlayVisible = true;
 
     // Front/back split
     this.clipPlane = new THREE.Plane();
@@ -633,7 +642,11 @@ export class ARScene {
   }
 
   renderContent(occlusion = true) {
-    if (!this.contentVisible) return; // 3D hidden: camera image only
+    if (this.contentVisible) this.render3D(occlusion); // 3D hidden: camera image only
+    this.renderOverlay();
+  }
+
+  render3D(occlusion) {
     const r = this.renderer;
     const cam = this.camera;
 
@@ -651,6 +664,68 @@ export class ARScene {
     cam.layers.enable(2);
     r.render(this.scene, cam);
     this.clipPlane.negate();
+  }
+
+  /**
+   * 2D banner image across the top of the frame. `image` is an HTMLImageElement
+   * with a transparent background; it is trimmed to its visible pixels.
+   */
+  setOverlay(image) {
+    if (this.overlayMesh) {
+      this.overlayMesh.removeFromParent();
+      this.overlayMesh.material.map.dispose();
+      this.overlayMesh.material.dispose();
+      this.overlayMesh.geometry.dispose();
+      this.overlayMesh = null;
+    }
+    if (!image) return;
+    // trim transparent margins so the banner can use the full frame width
+    const W = image.naturalWidth;
+    const H = image.naturalHeight;
+    const full = document.createElement('canvas');
+    full.width = W;
+    full.height = H;
+    const fg = full.getContext('2d');
+    fg.drawImage(image, 0, 0);
+    const d = fg.getImageData(0, 0, W, H).data;
+    let x0 = W, y0 = H, x1 = 0, y1 = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (d[(y * W + x) * 4 + 3] > 10) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+    }
+    if (x1 < x0) return; // fully transparent
+    const cv = document.createElement('canvas');
+    cv.width = x1 - x0 + 1;
+    cv.height = y1 - y0 + 1;
+    cv.getContext('2d').drawImage(full, -x0, -y0);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
+    this.overlayMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+    this.overlayMesh.frustumCulled = false;
+    this.overlayMesh.userData.aspect = cv.width / cv.height;
+    this.overlayScene.add(this.overlayMesh);
+  }
+
+  renderOverlay() {
+    const m = this.overlayMesh;
+    if (!m || !this.overlayVisible) return;
+    // size/position in clip space (-1..1): fixed share of the frame width,
+    // just below the top HUD buttons on screen
+    const buf = this.renderer.getDrawingBufferSize(_overlaySize);
+    const frameAspect = buf.x / buf.y;
+    const w = Math.min(OVERLAY_WIDTH, (OVERLAY_MAX_HEIGHT * m.userData.aspect) / frameAspect); // keep it short on wide screens
+    const h = (w * frameAspect) / m.userData.aspect;
+    m.scale.set(w, h, 1); // plane is 2x2, so scale = half-size * 2 / 2
+    m.position.set(0, 1 - 2 * OVERLAY_TOP - h, 0);
+    this.renderer.render(this.overlayScene, this.quadCam);
   }
 
   salvo() {
