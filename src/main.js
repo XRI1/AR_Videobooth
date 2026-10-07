@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '3.7'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '3.8'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -80,6 +80,13 @@ function loadBrandLogo() {
   return brandLogoPromise;
 }
 
+/** Lift the record/capture buttons above the 2D banner while it is shown. */
+function layoutBanner() {
+  const h = ar?.overlayHeightCss() ?? 0;
+  document.documentElement.style.setProperty('--banner-h', `${Math.round(h)}px`);
+  document.body.classList.toggle('with-banner', h > 0);
+}
+
 const fmtTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 /* ------------------------------ startup ------------------------------ */
@@ -114,13 +121,21 @@ async function start(file = null) {
     ar.buildContent(settings, font, logo, brandLogo);
     ar.contentVisible = settings.show3d;
     ar.overlayVisible = settings.overlay;
-    loadImage('overlay.webp').then((img) => ar.setOverlay(img)).catch(() => {}); // optional 2D banner
+    loadImage('overlay.webp')
+      .then((img) => {
+        ar.setOverlay(img);
+        layoutBanner();
+      })
+      .catch(() => {}); // optional 2D banner
     if (import.meta.env.DEV) window.__app = { ar, tracker, camera, gyro, recorder, get settings() { return settings; } };
 
     $('intro').classList.add('hidden');
     $('hud-top').classList.remove('hidden');
     $('hud-bottom').classList.remove('hidden');
-    window.addEventListener('resize', () => ar.resize());
+    window.addEventListener('resize', () => {
+      ar.resize();
+      layoutBanner();
+    });
     requestAnimationFrame(frame);
     toast(isMobile ? 'Point at a person, press record and walk around them' : 'Step back so your upper body is visible');
   } catch (err) {
@@ -588,7 +603,10 @@ async function onSettingChange(el) {
   if (ring && prop === 'height') return void (ring.height = value);
   if (key === 'arLock') return void updateArCheck();
   if (key === 'show3d') return void (ar.contentVisible = value);
-  if (key === 'overlay') return void (ar.overlayVisible = value);
+  if (key === 'overlay') {
+    ar.overlayVisible = value;
+    return void layoutBanner();
+  }
   if (['tilt', 'occlusion', 'invertGyro', 'fx.fireworks', 'fx.fountains'].includes(key)) return;
 
   if (key === 'model' || key === 'mask') {

@@ -176,6 +176,7 @@ button, .btn-primary, .btn-ghost { font: inherit; cursor: pointer; }
 #hud-top .icon-btn svg { width: 20px; height: 20px; }
 #hud-bottom {
   bottom: 0; padding-bottom: calc(22px + var(--safe-bottom)); justify-content: space-evenly;
+  transition: padding-bottom 0.25s ease;
   /* soft brand-blue fade so the controls read over any camera image */
   background: linear-gradient(0deg, rgba(5, 13, 99, 0.55), transparent);
   padding-top: 40px;
@@ -369,3 +370,9 @@ fieldset .btn-ghost { margin-top: 10px; font-size: 13px; padding: 8px 14px; }
 }
 .check.show3d input { width: 20px; height: 20px; flex: 0 0 auto; }
 .check.show3d small { display: block; font-family: var(--font-ui); font-weight: 400; font-size: 12px; opacity: 0.8; }
+
+/* 2D banner shown: it sits flush at the bottom and the buttons move up above it */
+body.with-banner #hud-bottom {
+  padding-bottom: calc(var(--banner-h, 0px) + 10px);
+  background: none;
+}
