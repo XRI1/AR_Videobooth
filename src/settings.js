@@ -11,6 +11,7 @@ const SETTINGS_REV = 6;
 export function defaultSettings() {
   return {
     rev: SETTINGS_REV,
+    show3d: true, // false hides every 3D element (only the camera image is shown and recorded)
     ring1: {
       enabled: true,
       text: 'GUT GUARDIAN',

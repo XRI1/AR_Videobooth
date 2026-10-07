@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '3.4'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '3.5'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -74,8 +74,8 @@ function loadBrandLogo() {
   if (!settings.ring1.logoText) return Promise.resolve(null);
   brandLogoPromise ??= Promise.all([
     loadImage('logo.webp'),
-    loadImage('badge-prebiotic.webp').catch(() => null), // badges are optional
-    loadImage('badge-probiotic.webp').catch(() => null),
+    loadImage('icon-probiotic.webp').catch(() => null), // left; side icons are optional
+    loadImage('icon-prebiotic.webp').catch(() => null), // right
   ]).then(([logo, left, right]) => ({ logo, badges: { left, right } }));
   return brandLogoPromise;
 }
@@ -112,6 +112,7 @@ async function start(file = null) {
       tracker.init(settings.model, settings.mask),
     ]);
     ar.buildContent(settings, font, logo, brandLogo);
+    ar.contentVisible = settings.show3d;
     if (import.meta.env.DEV) window.__app = { ar, tracker, camera, gyro, recorder, get settings() { return settings; } };
 
     $('intro').classList.add('hidden');
@@ -584,6 +585,7 @@ async function onSettingChange(el) {
   if (ring && prop === 'speed') return void (ring.speed = value);
   if (ring && prop === 'height') return void (ring.height = value);
   if (key === 'arLock') return void updateArCheck();
+  if (key === 'show3d') return void (ar.contentVisible = value);
   if (['tilt', 'occlusion', 'invertGyro', 'fx.fireworks', 'fx.fountains'].includes(key)) return;
 
   if (key === 'model' || key === 'mask') {

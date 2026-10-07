@@ -195,6 +195,7 @@ export class ARScene {
     this._orbitYaw = 0;
     this._staticTilt = 0.12;
     this.locked = false; // freeze the anchor in place (Lock button)
+    this.contentVisible = true; // false = hide every 3D element (settings: Show 3D elements)
     this.lockYaw = 0; // compass heading at lock time
     this.lockPitch = 0;
 
@@ -498,6 +499,8 @@ export class ARScene {
       this.glitter = createGlitter({
         radius: settings.ring1.radius,
         spread: settings.ring1.size * 1.3,
+        count: 180,
+        clearArc: this.rings.ring1.signHalfArc ?? 0, // keep sparkles off the logo and icons
         clippingPlanes: cp,
       });
       this.rings.ring1.inner.add(this.glitter);
@@ -630,6 +633,7 @@ export class ARScene {
   }
 
   renderContent(occlusion = true) {
+    if (!this.contentVisible) return; // 3D hidden: camera image only
     const r = this.renderer;
     const cam = this.camera;
 

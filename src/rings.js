@@ -151,8 +151,8 @@ export function createTextRing({ font, text, color, edge, size, radius, italic, 
 }
 
 /**
- * Brand logo "gut SYNBIO" in 3D, with optional badges either side (GOS
- * Prebiotic on the left, Probiotic on the right). Each sign's front face is
+ * Brand logo "gut SYNBIO" in 3D, with optional icons either side (probiotic
+ * capsule stream on the left, prebiotic cube stream on the right). Each sign's front face is
  * the real artwork (exact colours and shapes) and a solid body is extruded
  * behind it from the artwork's silhouette, so it reads as a thick 3D sign when
  * you walk around it. Everything sits on one gentle curve in front of the
@@ -160,8 +160,9 @@ export function createTextRing({ font, text, color, edge, size, radius, italic, 
  */
 const LOGO_CROP = 466 / 518; // keep the lettering, drop the small tagline underneath
 const SIGN_LAYERS = 14; // slices that make up each extruded body
-const BADGE_HEIGHT = 1.08; // badge height relative to the logo's height
-const BADGE_GAP = 0.03; // gap between logo and badge, in `size` units
+const ICON_HEIGHT = 2.2; // side icon height relative to the logo's height (the icons are tall)
+const ICON_GAP = 0.03; // gap between logo and icon, in `size` units
+const ICON_TURN = 0.3; // icons sit on the curve but turn only this share of its angle, so they face the camera
 
 export function createLogoText({ image, badges = {}, size, radius, clippingPlanes }) {
   const ring = new OrbitRing();
@@ -172,27 +173,32 @@ export function createLogoText({ image, badges = {}, size, radius, clippingPlane
   // --- layout along the curve (x = arc length, 0 = centre) ---
   const logoW = size * 3.2;
   const logoH = (logoW * Math.round(image.naturalHeight * LOGO_CROP)) / image.naturalWidth;
-  const signs = [{ img: image, crop: LOGO_CROP, w: logoW, x: 0, y: 0, body: ['#1a3fd0', '#06106a'] }];
-  const badgeH = logoH * BADGE_HEIGHT;
-  const gold = ['#e0a516', '#6b4300']; // matches the badges' gold frame
+  // logo body: solid navy like its outline
+  const signs = [{ img: image, crop: LOGO_CROP, w: logoW, x: 0, y: 0, depth: logoW * 0.045, body: ['#1a3fd0', '#06106a'] }];
+  const iconH = logoH * ICON_HEIGHT;
   let span = logoW;
   for (const [img, side] of [[badges.left, -1], [badges.right, 1]]) {
     if (!img) continue;
-    const w = (badgeH * img.naturalWidth) / img.naturalHeight;
-    signs.push({ img, crop: 1, w, x: side * (logoW / 2 + size * BADGE_GAP + w / 2), y: 0, body: gold });
-    span = Math.max(span, 2 * (logoW / 2 + size * BADGE_GAP + w));
+    const w = (iconH * img.naturalWidth) / img.naturalHeight;
+    // icon body: the artwork's own colours, darkened (thin glowing lines stay blue, not a solid block)
+    signs.push({ img, crop: 1, w, x: side * (logoW / 2 + size * ICON_GAP + w / 2), y: 0, depth: logoW * 0.012, body: null, flat: true });
+    span = Math.max(span, 2 * (logoW / 2 + size * ICON_GAP + w));
   }
   const bendR = Math.max(radius, span / (FRONT_ARC * 0.75));
 
-  for (const sign of signs) addExtrudedSign(ring, sign, { bendR, radius, depth: logoW * 0.045, clippingPlanes });
+  for (const sign of signs) addExtrudedSign(ring, sign, { bendR, radius, clippingPlanes });
+  ring.signHalfArc = span / (2 * bendR); // glitter keeps clear of this front sector
 
   ring.frontZ = radius;
   ring.width = 2 * bendR * Math.sin(span / (2 * bendR));
   return ring;
 }
 
-/** One image sign: artwork face + stacked silhouette slices behind it, bent onto the curve. */
-function addExtrudedSign(ring, { img, crop, w, x, y, body }, { bendR, radius, depth, clippingPlanes }) {
+/**
+ * One image sign: artwork face + stacked slices behind it, bent onto the curve.
+ * `body` = [front, back] colours for a solid body, or null to darken the artwork itself.
+ */
+function addExtrudedSign(ring, { img, crop, w, x, y, depth, body, flat }, { bendR, radius, clippingPlanes }) {
   // textures: the artwork, and its silhouette in white (tinted per slice)
   const W = img.naturalWidth;
   const H = Math.round(img.naturalHeight * crop);
@@ -211,7 +217,7 @@ function addExtrudedSign(ring, { img, crop, w, x, y, body }, { bendR, radius, de
   const tex = (cv) => {
     const t = new THREE.CanvasTexture(cv);
     t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = 8;
+    t.anisotropy = 16; // clamped to the GPU's max; keeps the curved artwork sharp at an angle
     ring.extraTextures.push(t);
     return t;
   };
@@ -221,19 +227,26 @@ function addExtrudedSign(ring, { img, crop, w, x, y, body }, { bendR, radius, de
   const h = (w * H) / W;
   const plane = new THREE.PlaneGeometry(w, h, 48, 1);
   plane.translate(0, y, 0);
+  const a = x / bendR; // angle of the sign's centre on the curve
   const place = (z) => {
-    const g = bendAroundCylinder(plane, bendR, x / bendR);
+    if (flat) {
+      // flat panel at its spot on the curve, turned only slightly toward the side
+      const g = plane.clone().translate(0, 0, z).rotateY(a * ICON_TURN);
+      g.translate(bendR * Math.sin(a), 0, bendR * Math.cos(a) + radius - bendR);
+      return g;
+    }
+    const g = bendAroundCylinder(plane, bendR, a);
     g.translate(0, 0, radius - bendR + z);
     return g;
   };
 
-  // body: stacked silhouette slices, darker toward the back
-  const front = new THREE.Color(body[0]);
-  const back = new THREE.Color(body[1]);
+  // body: stacked slices, darker toward the back
+  const front = new THREE.Color(body ? body[0] : '#8a8a8a');
+  const back = new THREE.Color(body ? body[1] : '#262626');
   for (let i = 0; i < SIGN_LAYERS; i++) {
     const t = i / (SIGN_LAYERS - 1);
     const mat = new THREE.MeshBasicMaterial({
-      map: silTex,
+      map: body ? silTex : artTex,
       color: front.clone().lerp(back, t),
       alphaTest: 0.5,
       side: THREE.DoubleSide,
@@ -419,12 +432,13 @@ const glitterFrag = /* glsl */ `
   }
 `;
 
-export function createGlitter({ radius, spread, count = 260, clippingPlanes }) {
+export function createGlitter({ radius, spread, count = 260, clearArc = 0, clippingPlanes }) {
   const pos = new Float32Array(count * 3);
   const phase = new Float32Array(count);
   const sizes = new Float32Array(count);
   for (let i = 0; i < count; i++) {
-    const a = Math.random() * TAU;
+    // around the ring, but not over the front sign (|a| < clearArc), so it stays readable
+    const a = clearArc + Math.random() * (TAU - 2 * clearArc);
     const r = radius * (0.92 + Math.random() * 0.3);
     pos[i * 3] = Math.sin(a) * r;
     pos[i * 3 + 1] = (Math.random() * 2 - 1) * spread;
