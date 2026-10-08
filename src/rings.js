@@ -216,28 +216,54 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
   const group = new THREE.Group();
   const LINES = 8;
   const sx = mirror ? 1 : -1; // outer side: left icon's top-left, right icon's top-right
-  // stream k (0 = outermost): steep at the top outer corner, flattening toward the bottom inner corner
+  // Like the artwork: the streams start wide apart (and thick) around the top
+  // outer corner, sweep down steeply, then flatten and converge into thin
+  // lines at one point by the bottom inner corner (next to the logo).
+  // u: 0 = outer edge, 1 = inner edge; v: 0 = bottom, 1 = top. Stream k = 0 is the topmost.
   const curves = [];
+  const end = new THREE.Vector2(1, 0.05);
   for (let k = 0; k < LINES; k++) {
     const f = k / (LINES - 1);
-    const bottom = 0.02 + 0.4 * f; // inner ends fan out down the inner edge
-    const top = 0.96 - bottom - 0.05 * f;
-    const u0 = 0.3 * f; // outer ends fan out along the top edge
+    // starts spread along the top edge and down the outer edge
+    const start = new THREE.Vector2(0.55 * (1 - f) * (1 - f), 1 - 0.55 * f * f);
+    const ctrl = new THREE.Vector2(start.x + 0.12, end.y + 0.04); // steep first, then flat into the end
     const pts = [];
-    for (let i = 0; i <= 16; i++) {
-      const t = i / 16;
-      const u = u0 + t * (1 - u0); // 0 = outer edge, 1 = inner edge (toward the logo)
-      const v = (1 - t) * (1 - t) * top + bottom;
+    for (let i = 0; i <= 20; i++) {
+      const t = i / 20;
+      const a = (1 - t) * (1 - t), b = 2 * (1 - t) * t, c = t * t;
+      const u = a * start.x + b * ctrl.x + c * end.x;
+      const v = a * start.y + b * ctrl.y + c * end.y;
       pts.push(
         new THREE.Vector3(
           sx * (0.5 - u) * w,
           (v - 0.5) * h,
-          (f - 0.5) * 0.22 * w + Math.sin(Math.PI * t) * 0.08 * w, // depth: streams fan out in 3D
+          (f - 0.5) * 0.3 * w * (1 - t) + Math.sin(Math.PI * t) * 0.05 * w, // fanned out in depth at the wide end, converging
         ),
       );
     }
     curves.push(new THREE.CatmullRomCurve3(pts));
   }
+  // tube that tapers from `r0` (wide end) to `r1` (where the streams meet)
+  const taperedTube = (curve, r0, r1, radial) => {
+    const SEG = 64;
+    const geo = new THREE.TubeGeometry(curve, SEG, 1, radial);
+    const pos = geo.attributes.position;
+    const centre = new THREE.Vector3();
+    const v = new THREE.Vector3();
+    for (let i = 0; i <= SEG; i++) {
+      const t = i / SEG;
+      curve.getPointAt(t, centre);
+      const r = r0 + (r1 - r0) * t;
+      for (let j = 0; j <= radial; j++) {
+        const idx = i * (radial + 1) + j;
+        v.fromBufferAttribute(pos, idx).sub(centre).multiplyScalar(r).add(centre);
+        pos.setXYZ(idx, v.x, v.y, v.z);
+      }
+    }
+    pos.needsUpdate = true;
+    geo.computeBoundingSphere();
+    return geo;
+  };
 
   // --- light-stream tubes: thin glowing lines + two bright beams with a soft halo ---
   const lineMat = (color, opacity, additive = false) =>
@@ -255,9 +281,9 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
   const halo = lineMat('#2f8dff', 0.28, true);
   curves.forEach((c, k) => {
     const isBeam = k === 2 || k === 5;
-    const r = (isBeam ? 0.02 : 0.008) * w;
-    group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 64, r, 6), isBeam ? beam : thin));
-    if (isBeam) group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 64, r * 2.6, 8), halo));
+    const r = (isBeam ? 0.026 : 0.01) * w; // at the wide end; ~1/4 of that where the streams meet
+    group.add(new THREE.Mesh(taperedTube(c, r, r * 0.25, 6), isBeam ? beam : thin));
+    if (isBeam) group.add(new THREE.Mesh(taperedTube(c, r * 2.6, r * 0.5, 8), halo));
   });
 
   // --- glass objects flowing along the streams ---
@@ -317,7 +343,8 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
         it.curve.getTangentAt(it.t, tan);
         q.setFromUnitVectors(up, tan); // capsules lie along the stream
       }
-      const sc = it.size * (0.4 + 0.6 * k);
+      // big at the wide end, shrinking as they flow into the narrow end (like the artwork)
+      const sc = it.size * (0.4 + 0.6 * k) * (1.35 - 0.9 * it.t);
       m.compose(p, q, s.set(sc, sc, sc));
       it.mesh.setMatrixAt(it.index, m);
       it.fade.setX(it.index, k);
