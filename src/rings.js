@@ -162,10 +162,11 @@ export function createTextRing({ font, text, color, edge, size, radius, italic, 
  */
 const LOGO_CROP = 466 / 518; // keep the lettering, drop the small tagline underneath
 const SIGN_LAYERS = 14; // slices that make up each extruded body
-const ICON_HEIGHT = 2.2; // side icon height relative to the logo's height (the icons are tall)
+const ICON_HEIGHT = 2.9; // side icon height relative to the logo's height (the icons are tall)
 const ICON_GAP = 0.03; // gap between logo and icon, in `size` units
 const ICON_TURN = 0.3; // icons sit on the curve but turn only this share of its angle, so they face the camera
-const ICON_ASPECT = 0.9; // icon width / height (like the brand artwork)
+const ICON_ASPECT = 1.1;
+const ICON_FIT = 0.6; // share of each icon's width that must stay inside the frame // icon width / height (like the brand artwork)
 
 export function createLogoText({ image, icons = true, size, radius, clippingPlanes }) {
   const ring = new OrbitRing();
@@ -196,12 +197,16 @@ export function createLogoText({ image, icons = true, size, radius, clippingPlan
       ring.inner.add(icon.group);
       ticks.push(icon.tick);
     }
-    ring.tick = (dt) => ticks.forEach((t) => t(dt));
+    ring.flowReverse = false; // settings: reverse the icons' movement (flow in toward the logo)
+    ring.tick = (dt) => ticks.forEach((t) => t(dt, ring.flowReverse));
   }
   ring.signHalfArc = (span / (2 * bendR)) * 1.3; // glitter keeps clear of this front sector (with margin)
 
   ring.frontZ = radius;
-  ring.width = 2 * bendR * Math.sin(span / (2 * bendR));
+  // Frame fit: count only the inner part of each icon, so the logo keeps its
+  // size and the sparse outer tips of the icon streams may reach the screen edges.
+  const fitSpan = icons ? 2 * (logoW / 2 + size * ICON_GAP + iconW * ICON_FIT) : span;
+  ring.width = 2 * bendR * Math.sin(Math.min(fitSpan, span) / (2 * bendR));
   return ring;
 }
 
@@ -310,10 +315,11 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
   const m = new THREE.Matrix4();
   const up = new THREE.Vector3(0, 1, 0);
   let time = 0;
-  const tick = (dt) => {
+  const tick = (dt, reverse = false) => {
+    const dir = reverse ? 1 : -1; // -1: out from the logo (t 1 -> 0); +1: in toward the logo
     time += dt;
     for (const it of items) {
-      it.t = (((it.t - it.speed * dt) % 1) + 1) % 1; // flow out from the logo toward the top outer corner
+      it.t = (((it.t + dir * it.speed * dt) % 1) + 1) % 1; // along the path, out from the logo or back in
       it.curve.getPointAt(it.t, p);
       // grow in where the streams start, fade out at the far end
       const k = Math.min(1, it.t / 0.12, (1 - it.t) / 0.15);
@@ -332,10 +338,10 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
       const base = it.slot * TAIL;
       for (let j = 0; j < TAIL; j++) {
         const g = (j + 1) / (TAIL + 1); // 0 = at the object, 1 = tail tip
-        const tt = it.t + g * TAIL_LEN;
+        const tt = it.t - dir * g * TAIL_LEN; // behind the object, whichever way it moves
         let r = 0;
         let a = 0;
-        if (tt < 1) {
+        if (tt > 0 && tt < 1) {
           it.curve.getPointAt(tt, tp);
           r = it.radius * sc * 0.8 * (1 - g * 0.75);
           a = 0.95 * (1 - g * g) * k; // stays solid for most of the tail, fading at the tip

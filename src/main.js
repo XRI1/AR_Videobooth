@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '4.4'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '4.6'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -599,6 +599,10 @@ async function onSettingChange(el) {
   if (ring && prop === 'height') return void (ring.height = value);
   if (key === 'arLock') return void updateArCheck();
   if (key === 'show3d') return void (ar.contentVisible = value);
+  if (key === 'iconsReverse') {
+    if (ar.rings.ring1) ar.rings.ring1.flowReverse = value;
+    return;
+  }
   if (key === 'overlay') {
     ar.overlayVisible = value;
     return void layoutBanner();

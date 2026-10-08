@@ -12,6 +12,7 @@ export function defaultSettings() {
   return {
     rev: SETTINGS_REV,
     show3d: true, // false hides every 3D element (only the camera image is shown and recorded)
+    iconsReverse: false, // 3D side icons: false = objects flow out from the logo, true = flow in toward it
     overlay: false, // 2D brand banner above the record button (also in the recording); off by default
     ring1: {
       enabled: true,
@@ -21,7 +22,7 @@ export function defaultSettings() {
       color: '#1a73e8',
       edge: '#ffffff',
       italic: true,
-      height: 0.35, // in torso units: 0 = hips, 1 = shoulders
+      height: 0, // in torso units: 0 = hips, 1 = shoulders (logo centred at hip level)
       radius: 1.3, // distance in front of the body (torso units)
       size: 0.3,
       speed: -0.8, // rad/s
@@ -84,6 +85,7 @@ const OLD_DEFAULTS = {
   'ring1.radius': [1.05],
   'ring2.radius': [0.95],
   tilt: [0.12], // the logo used to lean back toward the camera
+  'ring1.height': [0.35, 0.15], // the logo group sat a little higher
 };
 function migrateDefaults(s) {
   const d = defaultSettings();

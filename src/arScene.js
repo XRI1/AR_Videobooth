@@ -468,6 +468,7 @@ export class ARScene {
           });
       ring.speed = c.speed;
       ring.height = c.height;
+      if (brand) ring.flowReverse = !!settings.iconsReverse;
       this.rings[key] = ring;
       this.root.add(ring.outer);
     }
