@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '4.6'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '4.7'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -76,6 +76,21 @@ function loadBrandLogo() {
   return brandLogoPromise;
 }
 
+// Main-screen button: reverse the 3D side icons' movement (same as the settings switch)
+function setIconsReverse(value) {
+  settings.iconsReverse = value;
+  saveSettings(settings);
+  if (ar?.rings.ring1) ar.rings.ring1.flowReverse = value;
+  const box = document.querySelector('[data-key="iconsReverse"]');
+  if (box) box.checked = value;
+  $('btnReverse').classList.toggle('active', value);
+  $('btnReverse').setAttribute('aria-pressed', String(value));
+}
+$('btnReverse').addEventListener('click', () => {
+  setIconsReverse(!settings.iconsReverse);
+  toast(settings.iconsReverse ? 'Icons flow in toward the logo' : 'Icons flow out from the logo', 1600);
+});
+
 /** Lift the record/capture buttons above the 2D banner while it is shown. */
 function layoutBanner() {
   const h = ar?.overlayHeightCss() ?? 0;
@@ -116,6 +131,7 @@ async function start(file = null) {
     ]);
     ar.buildContent(settings, font, logo, brandLogo);
     ar.contentVisible = settings.show3d;
+    setIconsReverse(settings.iconsReverse);
     ar.overlayVisible = settings.overlay;
     loadImage('overlay.webp')
       .then((img) => {
@@ -599,10 +615,7 @@ async function onSettingChange(el) {
   if (ring && prop === 'height') return void (ring.height = value);
   if (key === 'arLock') return void updateArCheck();
   if (key === 'show3d') return void (ar.contentVisible = value);
-  if (key === 'iconsReverse') {
-    if (ar.rings.ring1) ar.rings.ring1.flowReverse = value;
-    return;
-  }
+  if (key === 'iconsReverse') return void setIconsReverse(value);
   if (key === 'overlay') {
     ar.overlayVisible = value;
     return void layoutBanner();

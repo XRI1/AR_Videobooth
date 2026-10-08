@@ -6,7 +6,7 @@ export const isMobile =
 
 const STORAGE_KEY = 'ar360.settings.v1';
 // Bump when a one-time change must reach saved settings (see loadSettings).
-const SETTINGS_REV = 7;
+const SETTINGS_REV = 8;
 
 export function defaultSettings() {
   return {
@@ -120,6 +120,9 @@ export function loadSettings() {
     }
     if (saved && (saved.rev ?? 1) < 7) {
       s.overlay = false; // rev 7: the 2D banner starts hidden
+    }
+    if (saved && (saved.rev ?? 1) < 8) {
+      s.ring1.height = 0; // rev 8: logo group centred at hip level
     }
     if (saved && saved.rev !== SETTINGS_REV) {
       s.rev = SETTINGS_REV;

@@ -162,11 +162,11 @@ export function createTextRing({ font, text, color, edge, size, radius, italic, 
  */
 const LOGO_CROP = 466 / 518; // keep the lettering, drop the small tagline underneath
 const SIGN_LAYERS = 14; // slices that make up each extruded body
-const ICON_HEIGHT = 2.9; // side icon height relative to the logo's height (the icons are tall)
+const ICON_HEIGHT = 3.4; // side icon height relative to the logo's height (the icons are tall)
 const ICON_GAP = 0.03; // gap between logo and icon, in `size` units
 const ICON_TURN = 0.3; // icons sit on the curve but turn only this share of its angle, so they face the camera
-const ICON_ASPECT = 1.1;
-const ICON_FIT = 0.6; // share of each icon's width that must stay inside the frame // icon width / height (like the brand artwork)
+const ICON_ASPECT = 1.35;
+const ICON_FIT = 0.42; // share of each icon's width that must stay inside the frame // icon width / height (like the brand artwork)
 
 export function createLogoText({ image, icons = true, size, radius, clippingPlanes }) {
   const ring = new OrbitRing();
@@ -322,7 +322,10 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
       it.t = (((it.t + dir * it.speed * dt) % 1) + 1) % 1; // along the path, out from the logo or back in
       it.curve.getPointAt(it.t, p);
       // grow in where the streams start, fade out at the far end
-      const k = Math.min(1, it.t / 0.12, (1 - it.t) / 0.15);
+      // trip: 0 where the object starts its trip, 1 where it ends (either direction);
+      // quick fade-in, and it stays solid until the very end of the trip
+      const trip = dir < 0 ? 1 - it.t : it.t;
+      const k = Math.min(1, trip / 0.08, (1 - trip) / 0.05);
       if (it.tumble) {
         q.setFromEuler(e.set(it.phase + time * it.spin.x, it.phase * 2 + time * it.spin.y, time * it.spin.z));
       } else {
