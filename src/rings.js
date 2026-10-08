@@ -266,7 +266,7 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
         index: i,
         curve: curves[(i * 3 + 1) % LINES],
         t: (i + Math.random() * 0.5) / count, // spread along the streams
-        speed: 0.05 + Math.random() * 0.04,
+        speed: 0.075 + Math.random() * 0.055, // path lengths per second
         size: sizeRange[0] + Math.random() * (sizeRange[1] - sizeRange[0]),
         tumble,
         spin: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(1.6),
@@ -286,8 +286,8 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
 
   // --- short tails: a row of fading, shrinking glass beads behind each object
   // (glass, not additive glow, so they read on bright and dark backgrounds) ---
-  const TAIL = 9;
-  const TAIL_LEN = 0.09; // along the path (0..1)
+  const TAIL = 12;
+  const TAIL_LEN = 0.15; // along the path (0..1)
   const tailGeo = new THREE.SphereGeometry(1, 10, 8);
   const tailFade = new THREE.InstancedBufferAttribute(new Float32Array(items.length * TAIL), 1);
   tailFade.setUsage(THREE.DynamicDrawUsage);
@@ -337,8 +337,8 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
         let a = 0;
         if (tt < 1) {
           it.curve.getPointAt(tt, tp);
-          r = it.radius * sc * 0.6 * (1 - g * 0.85);
-          a = 0.75 * (1 - g) * k;
+          r = it.radius * sc * 0.8 * (1 - g * 0.75);
+          a = 0.95 * (1 - g * g) * k; // stays solid for most of the tail, fading at the tip
         }
         m.compose(tp, noRot, s.set(r, r, r));
         tail.setMatrixAt(base + j, m);

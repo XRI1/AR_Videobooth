@@ -2,7 +2,7 @@
 
 A browser-based AR video booth. Point a phone at a person and the 3D brand logo, rising glass capsules and cubes, sparklers and glitter appear around them, with the person correctly cut out so effects can pass behind their body. Press **Lock** to pin everything to a real spot in the room, walk the phone around the person and record. Tap **Submit** to upload the video, and a **QR code** appears so the guest can scan it and download the clip to their own phone. No app install needed.
 
-Current version: **4.2**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
+Current version: **4.3**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
 
 ## Features
 
