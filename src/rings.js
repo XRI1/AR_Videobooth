@@ -206,19 +206,20 @@ export function createLogoText({ image, icons = true, size, radius, clippingPlan
 }
 
 /**
- * A 3D "flow" icon like the brand artwork: a fan of glowing light-stream tubes
- * sweeping from the top outer corner down to the bottom inner corner, with
- * glass objects flowing along them (capsules, or blue / lime cubes) and small
- * bubbles. Built in a w x h box centred on the group origin; `mirror` flips it
- * left-right. Returns { group, tick(dt) }.
+ * A 3D "flow" icon like the brand artwork: glass objects (capsules, or blue /
+ * lime cubes) and small bubbles stream out from a point by the bottom inner
+ * corner (next to the logo), fanning out and growing as they sweep up to the
+ * top outer corner, each with a short glowing tail. The paths themselves are
+ * invisible. Built in a w x h box centred on the group origin; `mirror` flips
+ * it left-right. Returns { group, tick(dt) }.
  */
 function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
   const group = new THREE.Group();
   const LINES = 8;
   const sx = mirror ? 1 : -1; // outer side: left icon's top-left, right icon's top-right
-  // Like the artwork: the streams start wide apart (and thick) around the top
-  // outer corner, sweep down steeply, then flatten and converge into thin
-  // lines at one point by the bottom inner corner (next to the logo).
+  // Paths like the artwork's streams: wide apart around the top outer corner,
+  // converging at one point by the bottom inner corner (next to the logo).
+  // Objects travel them from the point outward (t: 1 -> 0).
   // u: 0 = outer edge, 1 = inner edge; v: 0 = bottom, 1 = top. Stream k = 0 is the topmost.
   const curves = [];
   const end = new THREE.Vector2(1, 0.05);
@@ -243,53 +244,10 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
     }
     curves.push(new THREE.CatmullRomCurve3(pts));
   }
-  // tube that tapers from `r0` (wide end) to `r1` (where the streams meet)
-  const taperedTube = (curve, r0, r1, radial) => {
-    const SEG = 64;
-    const geo = new THREE.TubeGeometry(curve, SEG, 1, radial);
-    const pos = geo.attributes.position;
-    const centre = new THREE.Vector3();
-    const v = new THREE.Vector3();
-    for (let i = 0; i <= SEG; i++) {
-      const t = i / SEG;
-      curve.getPointAt(t, centre);
-      const r = r0 + (r1 - r0) * t;
-      for (let j = 0; j <= radial; j++) {
-        const idx = i * (radial + 1) + j;
-        v.fromBufferAttribute(pos, idx).sub(centre).multiplyScalar(r).add(centre);
-        pos.setXYZ(idx, v.x, v.y, v.z);
-      }
-    }
-    pos.needsUpdate = true;
-    geo.computeBoundingSphere();
-    return geo;
-  };
-
-  // --- light-stream tubes: thin glowing lines + two bright beams with a soft halo ---
-  const lineMat = (color, opacity, additive = false) =>
-    new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity,
-      depthWrite: false,
-      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
-      toneMapped: false,
-      clippingPlanes,
-    });
-  const thin = lineMat('#2f74ff', 0.9);
-  const beam = lineMat('#56d2ff', 0.95);
-  const halo = lineMat('#2f8dff', 0.28, true);
-  curves.forEach((c, k) => {
-    const isBeam = k === 2 || k === 5;
-    const r = (isBeam ? 0.026 : 0.01) * w; // at the wide end; ~1/4 of that where the streams meet
-    group.add(new THREE.Mesh(taperedTube(c, r, r * 0.25, 6), isBeam ? beam : thin));
-    if (isBeam) group.add(new THREE.Mesh(taperedTube(c, r * 2.6, r * 0.5, 8), halo));
-  });
-
   // --- glass objects flowing along the streams ---
   const { BLUE, CYAN, LIME } = GLASS_COLORS;
   const items = [];
-  const addKind = (geo, edges, count, colorFn, sizeRange, tumble) => {
+  const addKind = (geo, edges, count, colorFn, sizeRange, tumble, radius) => {
     const fade = new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1);
     fade.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('aFade', fade);
@@ -297,9 +255,13 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
     mesh.frustumCulled = false;
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     for (let i = 0; i < count; i++) {
-      mesh.setColorAt(i, colorFn(i));
+      const color = colorFn(i);
+      mesh.setColorAt(i, color);
       items.push({
         mesh,
+        slot: items.length, // index of this object's tail dots
+        color: color.clone().lerp(new THREE.Color(1, 1, 1), 0.25), // tail glow
+        radius,
         fade,
         index: i,
         curve: curves[(i * 3 + 1) % LINES],
@@ -316,11 +278,29 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
   };
   const blue = () => (Math.random() < 0.5 ? BLUE : CYAN).clone().lerp(BLUE, 0.3);
   if (kind === 'capsules') {
-    addKind(new THREE.CapsuleGeometry(0.055 * w, 0.15 * w, 6, 16), 0, 10, blue, [0.75, 1.35], false);
+    addKind(new THREE.CapsuleGeometry(0.055 * w, 0.15 * w, 6, 16), 0, 10, blue, [0.75, 1.35], false, 0.055 * w);
   } else {
-    addKind(new THREE.BoxGeometry(0.12 * w, 0.12 * w, 0.12 * w), 1, 13, (i) => (i % 2 ? LIME.clone() : blue()), [0.6, 1.3], true);
+    addKind(new THREE.BoxGeometry(0.12 * w, 0.12 * w, 0.12 * w), 1, 13, (i) => (i % 2 ? LIME.clone() : blue()), [0.6, 1.3], true, 0.055 * w);
   }
-  addKind(new THREE.SphereGeometry(0.022 * w, 12, 8), 0, 16, (i) => (kind === 'cubes' && i % 4 === 0 ? LIME.clone() : blue()), [0.6, 1.5], false);
+  addKind(new THREE.SphereGeometry(0.022 * w, 12, 8), 0, 16, (i) => (kind === 'cubes' && i % 4 === 0 ? LIME.clone() : blue()), [0.6, 1.5], false, 0.022 * w);
+
+  // --- short tails: a row of fading, shrinking glass beads behind each object
+  // (glass, not additive glow, so they read on bright and dark backgrounds) ---
+  const TAIL = 9;
+  const TAIL_LEN = 0.09; // along the path (0..1)
+  const tailGeo = new THREE.SphereGeometry(1, 10, 8);
+  const tailFade = new THREE.InstancedBufferAttribute(new Float32Array(items.length * TAIL), 1);
+  tailFade.setUsage(THREE.DynamicDrawUsage);
+  tailGeo.setAttribute('aFade', tailFade);
+  const tail = new THREE.InstancedMesh(tailGeo, createGlassMaterial(0, clippingPlanes), items.length * TAIL);
+  tail.frustumCulled = false;
+  tail.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  items.forEach((it) => {
+    for (let j = 0; j < TAIL; j++) tail.setColorAt(it.slot * TAIL + j, it.color);
+  });
+  group.add(tail);
+  const tp = new THREE.Vector3();
+  const noRot = new THREE.Quaternion();
 
   const p = new THREE.Vector3();
   const tan = new THREE.Vector3();
@@ -333,9 +313,9 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
   const tick = (dt) => {
     time += dt;
     for (const it of items) {
-      it.t = (it.t + it.speed * dt) % 1; // flow from the top outer corner toward the logo
+      it.t = (((it.t - it.speed * dt) % 1) + 1) % 1; // flow out from the logo toward the top outer corner
       it.curve.getPointAt(it.t, p);
-      // grow in at the start of the stream, fade out at its end
+      // grow in where the streams start, fade out at the far end
       const k = Math.min(1, it.t / 0.12, (1 - it.t) / 0.15);
       if (it.tumble) {
         q.setFromEuler(e.set(it.phase + time * it.spin.x, it.phase * 2 + time * it.spin.y, time * it.spin.z));
@@ -343,18 +323,35 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
         it.curve.getTangentAt(it.t, tan);
         q.setFromUnitVectors(up, tan); // capsules lie along the stream
       }
-      // big at the wide end, shrinking as they flow into the narrow end (like the artwork)
+      // small where the streams meet, growing as they fan out (like the artwork)
       const sc = it.size * (0.4 + 0.6 * k) * (1.35 - 0.9 * it.t);
       m.compose(p, q, s.set(sc, sc, sc));
       it.mesh.setMatrixAt(it.index, m);
       it.fade.setX(it.index, k);
+      // tail: trails back along the path toward where the object came from
+      const base = it.slot * TAIL;
+      for (let j = 0; j < TAIL; j++) {
+        const g = (j + 1) / (TAIL + 1); // 0 = at the object, 1 = tail tip
+        const tt = it.t + g * TAIL_LEN;
+        let r = 0;
+        let a = 0;
+        if (tt < 1) {
+          it.curve.getPointAt(tt, tp);
+          r = it.radius * sc * 0.6 * (1 - g * 0.85);
+          a = 0.75 * (1 - g) * k;
+        }
+        m.compose(tp, noRot, s.set(r, r, r));
+        tail.setMatrixAt(base + j, m);
+        tailFade.setX(base + j, a);
+      }
     }
     group.traverse((o) => {
       if (o.isInstancedMesh) {
         o.instanceMatrix.needsUpdate = true;
-        o.geometry.attributes.aFade.needsUpdate = true;
+        if (o.geometry.attributes.aFade) o.geometry.attributes.aFade.needsUpdate = true;
       }
     });
+    tailFade.needsUpdate = true;
   };
   tick(0);
   return { group, tick };
