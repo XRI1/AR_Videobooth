@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '3.9'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '4.0'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -61,7 +61,7 @@ async function rebuild() {
   ar.buildContent(settings, font, logo, brandLogo);
 }
 
-// Artwork for the 3D "gut SYNBIO" sign and its side badges (only when used)
+// Artwork for the 3D "gut SYNBIO" sign (only when used)
 let brandLogoPromise;
 const loadImage = (file) =>
   new Promise((resolve, reject) => {
@@ -72,11 +72,7 @@ const loadImage = (file) =>
   });
 function loadBrandLogo() {
   if (!settings.ring1.logoText) return Promise.resolve(null);
-  brandLogoPromise ??= Promise.all([
-    loadImage('logo.webp'),
-    loadImage('icon-probiotic.webp').catch(() => null), // left; side icons are optional
-    loadImage('icon-prebiotic.webp').catch(() => null), // right
-  ]).then(([logo, left, right]) => ({ logo, badges: { left, right } }));
+  brandLogoPromise ??= loadImage('logo.webp').then((logo) => ({ logo }));
   return brandLogoPromise;
 }
 

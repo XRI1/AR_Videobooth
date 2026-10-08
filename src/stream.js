@@ -84,6 +84,23 @@ const glassFrag = /* glsl */ `
   }
 `;
 
+/**
+ * Glossy glass material (instanced meshes with per-instance colour and an
+ * `aFade` instance attribute). `edges` = 1 adds glowing cube edges.
+ */
+export function createGlassMaterial(edges, clippingPlanes) {
+  return new THREE.ShaderMaterial({
+    vertexShader: glassVert,
+    fragmentShader: glassFrag,
+    uniforms: { uEdges: { value: edges } },
+    transparent: true,
+    side: THREE.DoubleSide,
+    clipping: true,
+    clippingPlanes,
+  });
+}
+export const GLASS_COLORS = { BLUE, CYAN, LIME };
+
 /* ------------------------------ motion ------------------------------ */
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -129,15 +146,7 @@ export class LightStream {
     this._geometries = [];
 
     const glass = (edges) => {
-      const m = new THREE.ShaderMaterial({
-        vertexShader: glassVert,
-        fragmentShader: glassFrag,
-        uniforms: { uEdges: { value: edges } },
-        transparent: true,
-        side: THREE.DoubleSide,
-        clipping: true,
-        clippingPlanes,
-      });
+      const m = createGlassMaterial(edges, clippingPlanes);
       this._materials.push(m);
       return m;
     };

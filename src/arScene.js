@@ -454,7 +454,7 @@ export class ARScene {
       if (!c.enabled || (!brand && !c.text.trim())) continue;
       const ring = brand
         ? // "gut SYNBIO" brand lettering (static, in front of the body)
-          createLogoText({ image: brandLogo.logo, badges: brandLogo.badges, size: c.size, radius: c.radius, clippingPlanes: cp })
+          createLogoText({ image: brandLogo.logo, size: c.size, radius: c.radius, clippingPlanes: cp })
         : createTextRing({
             font,
             text: c.text,
@@ -551,6 +551,7 @@ export class ARScene {
 
     const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV) / 2); // layout always uses the virtual lens
     for (const ring of Object.values(this.rings)) {
+      ring.tick?.(dt); // animated parts (3D flow icons)
       ring.outer.visible = visible;
       ring.outer.position.copy(a.hip).addScaledVector(a.up, ring.height * a.S);
       if (ring.static) {

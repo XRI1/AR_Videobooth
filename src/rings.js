@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+import { createGlassMaterial, GLASS_COLORS } from './stream.js';
 
 const TAU = Math.PI * 2;
 const BADGE_FRONT_Z = 0.3; // still badges sit this far in front of the body axis
@@ -151,8 +152,9 @@ export function createTextRing({ font, text, color, edge, size, radius, italic, 
 }
 
 /**
- * Brand logo "gut SYNBIO" in 3D, with optional icons either side (probiotic
- * capsule stream on the left, prebiotic cube stream on the right). Each sign's front face is
+ * Brand logo "gut SYNBIO" in 3D, with real 3D icons either side: glowing light
+ * streams with glass capsules flowing along them (probiotic, left) and with
+ * blue / lime glass cubes (prebiotic, right). Each sign's front face is
  * the real artwork (exact colours and shapes) and a solid body is extruded
  * behind it from the artwork's silhouette, so it reads as a thick 3D sign when
  * you walk around it. Everything sits on one gentle curve in front of the
@@ -163,8 +165,9 @@ const SIGN_LAYERS = 14; // slices that make up each extruded body
 const ICON_HEIGHT = 2.2; // side icon height relative to the logo's height (the icons are tall)
 const ICON_GAP = 0.03; // gap between logo and icon, in `size` units
 const ICON_TURN = 0.3; // icons sit on the curve but turn only this share of its angle, so they face the camera
+const ICON_ASPECT = 0.9; // icon width / height (like the brand artwork)
 
-export function createLogoText({ image, badges = {}, size, radius, clippingPlanes }) {
+export function createLogoText({ image, icons = true, size, radius, clippingPlanes }) {
   const ring = new OrbitRing();
   ring.direction = -1;
   ring.static = true;
@@ -177,21 +180,157 @@ export function createLogoText({ image, badges = {}, size, radius, clippingPlane
   const signs = [{ img: image, crop: LOGO_CROP, w: logoW, x: 0, y: 0, depth: logoW * 0.045, body: ['#1a3fd0', '#06106a'] }];
   const iconH = logoH * ICON_HEIGHT;
   let span = logoW;
-  for (const [img, side] of [[badges.left, -1], [badges.right, 1]]) {
-    if (!img) continue;
-    const w = (iconH * img.naturalWidth) / img.naturalHeight;
-    // icon body: the artwork's own colours, darkened (thin glowing lines stay blue, not a solid block)
-    signs.push({ img, crop: 1, w, x: side * (logoW / 2 + size * ICON_GAP + w / 2), y: 0, depth: logoW * 0.012, body: null, flat: true });
-    span = Math.max(span, 2 * (logoW / 2 + size * ICON_GAP + w));
-  }
+  const iconW = iconH * ICON_ASPECT;
+  if (icons) span = 2 * (logoW / 2 + size * ICON_GAP + iconW);
   const bendR = Math.max(radius, span / (FRONT_ARC * 0.75));
 
   for (const sign of signs) addExtrudedSign(ring, sign, { bendR, radius, clippingPlanes });
-  ring.signHalfArc = span / (2 * bendR); // glitter keeps clear of this front sector
+  if (icons) {
+    const ticks = [];
+    for (const [kind, side] of [['capsules', -1], ['cubes', 1]]) {
+      const icon = createFlowIcon({ kind, mirror: side > 0, w: iconW, h: iconH, clippingPlanes });
+      // flat at its spot on the curve, turned only slightly toward the side (faces the camera)
+      const a = (side * (logoW / 2 + size * ICON_GAP + iconW / 2)) / bendR;
+      icon.group.position.set(bendR * Math.sin(a), 0, bendR * Math.cos(a) + radius - bendR);
+      icon.group.rotation.y = a * ICON_TURN;
+      ring.inner.add(icon.group);
+      ticks.push(icon.tick);
+    }
+    ring.tick = (dt) => ticks.forEach((t) => t(dt));
+  }
+  ring.signHalfArc = (span / (2 * bendR)) * 1.3; // glitter keeps clear of this front sector (with margin)
 
   ring.frontZ = radius;
   ring.width = 2 * bendR * Math.sin(span / (2 * bendR));
   return ring;
+}
+
+/**
+ * A 3D "flow" icon like the brand artwork: a fan of glowing light-stream tubes
+ * sweeping from the top outer corner down to the bottom inner corner, with
+ * glass objects flowing along them (capsules, or blue / lime cubes) and small
+ * bubbles. Built in a w x h box centred on the group origin; `mirror` flips it
+ * left-right. Returns { group, tick(dt) }.
+ */
+function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
+  const group = new THREE.Group();
+  const LINES = 8;
+  const sx = mirror ? 1 : -1; // outer side: left icon's top-left, right icon's top-right
+  // stream k (0 = outermost): steep at the top outer corner, flattening toward the bottom inner corner
+  const curves = [];
+  for (let k = 0; k < LINES; k++) {
+    const f = k / (LINES - 1);
+    const bottom = 0.02 + 0.4 * f; // inner ends fan out down the inner edge
+    const top = 0.96 - bottom - 0.05 * f;
+    const u0 = 0.3 * f; // outer ends fan out along the top edge
+    const pts = [];
+    for (let i = 0; i <= 16; i++) {
+      const t = i / 16;
+      const u = u0 + t * (1 - u0); // 0 = outer edge, 1 = inner edge (toward the logo)
+      const v = (1 - t) * (1 - t) * top + bottom;
+      pts.push(
+        new THREE.Vector3(
+          sx * (0.5 - u) * w,
+          (v - 0.5) * h,
+          (f - 0.5) * 0.22 * w + Math.sin(Math.PI * t) * 0.08 * w, // depth: streams fan out in 3D
+        ),
+      );
+    }
+    curves.push(new THREE.CatmullRomCurve3(pts));
+  }
+
+  // --- light-stream tubes: thin glowing lines + two bright beams with a soft halo ---
+  const lineMat = (color, opacity, additive = false) =>
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+      toneMapped: false,
+      clippingPlanes,
+    });
+  const thin = lineMat('#2f74ff', 0.9);
+  const beam = lineMat('#56d2ff', 0.95);
+  const halo = lineMat('#2f8dff', 0.28, true);
+  curves.forEach((c, k) => {
+    const isBeam = k === 2 || k === 5;
+    const r = (isBeam ? 0.02 : 0.008) * w;
+    group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 64, r, 6), isBeam ? beam : thin));
+    if (isBeam) group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 64, r * 2.6, 8), halo));
+  });
+
+  // --- glass objects flowing along the streams ---
+  const { BLUE, CYAN, LIME } = GLASS_COLORS;
+  const items = [];
+  const addKind = (geo, edges, count, colorFn, sizeRange, tumble) => {
+    const fade = new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1);
+    fade.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('aFade', fade);
+    const mesh = new THREE.InstancedMesh(geo, createGlassMaterial(edges, clippingPlanes), count);
+    mesh.frustumCulled = false;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    for (let i = 0; i < count; i++) {
+      mesh.setColorAt(i, colorFn(i));
+      items.push({
+        mesh,
+        fade,
+        index: i,
+        curve: curves[(i * 3 + 1) % LINES],
+        t: (i + Math.random() * 0.5) / count, // spread along the streams
+        speed: 0.05 + Math.random() * 0.04,
+        size: sizeRange[0] + Math.random() * (sizeRange[1] - sizeRange[0]),
+        tumble,
+        spin: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(1.6),
+        phase: Math.random() * TAU,
+      });
+    }
+    mesh.instanceColor.needsUpdate = true;
+    group.add(mesh);
+  };
+  const blue = () => (Math.random() < 0.5 ? BLUE : CYAN).clone().lerp(BLUE, 0.3);
+  if (kind === 'capsules') {
+    addKind(new THREE.CapsuleGeometry(0.055 * w, 0.15 * w, 6, 16), 0, 10, blue, [0.75, 1.35], false);
+  } else {
+    addKind(new THREE.BoxGeometry(0.12 * w, 0.12 * w, 0.12 * w), 1, 13, (i) => (i % 2 ? LIME.clone() : blue()), [0.6, 1.3], true);
+  }
+  addKind(new THREE.SphereGeometry(0.022 * w, 12, 8), 0, 16, (i) => (kind === 'cubes' && i % 4 === 0 ? LIME.clone() : blue()), [0.6, 1.5], false);
+
+  const p = new THREE.Vector3();
+  const tan = new THREE.Vector3();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const s = new THREE.Vector3();
+  const m = new THREE.Matrix4();
+  const up = new THREE.Vector3(0, 1, 0);
+  let time = 0;
+  const tick = (dt) => {
+    time += dt;
+    for (const it of items) {
+      it.t = (it.t + it.speed * dt) % 1; // flow from the top outer corner toward the logo
+      it.curve.getPointAt(it.t, p);
+      // grow in at the start of the stream, fade out at its end
+      const k = Math.min(1, it.t / 0.12, (1 - it.t) / 0.15);
+      if (it.tumble) {
+        q.setFromEuler(e.set(it.phase + time * it.spin.x, it.phase * 2 + time * it.spin.y, time * it.spin.z));
+      } else {
+        it.curve.getTangentAt(it.t, tan);
+        q.setFromUnitVectors(up, tan); // capsules lie along the stream
+      }
+      const sc = it.size * (0.4 + 0.6 * k);
+      m.compose(p, q, s.set(sc, sc, sc));
+      it.mesh.setMatrixAt(it.index, m);
+      it.fade.setX(it.index, k);
+    }
+    group.traverse((o) => {
+      if (o.isInstancedMesh) {
+        o.instanceMatrix.needsUpdate = true;
+        o.geometry.attributes.aFade.needsUpdate = true;
+      }
+    });
+  };
+  tick(0);
+  return { group, tick };
 }
 
 /**
