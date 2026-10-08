@@ -184,14 +184,14 @@ export class LightStream {
     const caps = style === 'cubes' ? 0 : style === 'capsules' ? 16 : 10;
     const cubes = style === 'capsules' ? 0 : style === 'cubes' ? 20 : 12;
     const blueish = () => (Math.random() < 0.5 ? BLUE : CYAN).clone().lerp(BLUE, 0.3);
-    add(new THREE.CapsuleGeometry(0.075, 0.2, 6, 16), glass(0), caps, 'capsule', blueish, [0.65, 1.05]);
+    add(new THREE.CapsuleGeometry(0.075, 0.2, 6, 16), glass(0), caps, 'capsule', blueish, [0.52, 0.85]);
     add(
       new THREE.BoxGeometry(0.15, 0.15, 0.15),
       glass(1),
       cubes,
       'cube',
       (i) => (i % 2 ? LIME.clone() : blueish()),
-      [0.55, 1.0],
+      [0.45, 0.8],
     );
     add(
       new THREE.SphereGeometry(0.03, 14, 10),
@@ -199,7 +199,7 @@ export class LightStream {
       36,
       'sphere',
       () => (Math.random() < 0.15 ? LIME.clone() : blueish()),
-      [0.6, 1.5],
+      [0.5, 1.2],
     );
 
     this.update(0);

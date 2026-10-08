@@ -56,7 +56,7 @@ export function defaultSettings() {
       streamStyle: 'both', // 'capsules' | 'cubes' | 'both'
     },
     occlusion: true,
-    tilt: 0.12,
+    tilt: 0, // lean of the 3D logo toward the camera (0 = stands straight up)
     invertGyro: false,
     arLock: true, // Lock uses WebXR/ARCore world lock when available (Android)
     mic: false, // record video without sound (no microphone permission needed)
@@ -83,6 +83,7 @@ const OLD_DEFAULTS = {
   'badge.text': ['20 YEARS'],
   'ring1.radius': [1.05],
   'ring2.radius': [0.95],
+  tilt: [0.12], // the logo used to lean back toward the camera
 };
 function migrateDefaults(s) {
   const d = defaultSettings();
