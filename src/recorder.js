@@ -3,11 +3,13 @@
 // MP4 is the goal, because every phone, gallery and messaging app plays it.
 // Ways to get there, best first:
 //   1. WebCodecs H.264 (hardware) + mp4-muxer -> standard MP4.
-//   2. H.264 in software (WebAssembly encoder in a worker, public/h264-worker.js)
-//      -> standard MP4, for phones whose hardware H.264 encoder is broken.
-//      Still H.264, so WhatsApp and every gallery accept it.
-//   3. WebCodecs VP9 (software) + mp4-muxer -> MP4 file with VP9 video
-//      (plays in galleries/Chrome, but WhatsApp rejects it).
+//   2. For phones whose hardware H.264 encoder is broken: record smoothly with
+//      WebCodecs VP9, then after the take convert it to H.264 with a software
+//      (WebAssembly) encoder in a worker (public/h264-worker.js), see
+//      convertToH264(). Converting after the take, with nothing else running,
+//      keeps every frame, so the video is smooth and still a standard H.264 MP4
+//      that WhatsApp and every gallery accept.
+//   3. Live software H.264 (same worker) if VP9 isn't available either.
 //   4. MediaRecorder with native MP4 (Safari / iOS, Chrome 126+).
 //   5. MediaRecorder WebM, as a last resort.
 // Each WebCodecs setup is test-encoded before use, and if an encoder stalls
@@ -46,12 +48,6 @@ const PIPELINES = [
     avc: true,
   },
   {
-    name: 'H.264 (software)',
-    kind: 'wasm',
-    sizes: [1280], // longest edge; a software encoder must keep up live on a phone
-    kbps: 5000,
-  },
-  {
     name: 'VP9',
     muxCodec: 'vp9',
     codecs: ['vp09.00.31.08', 'vp09.00.21.08', 'vp09.00.10.08'],
@@ -59,8 +55,19 @@ const PIPELINES = [
     extras: [{ latencyMode: 'realtime' }, {}],
     bitrate: 6_000_000,
     avc: false,
+    convert: true, // converted to H.264 after the take (WhatsApp needs H.264)
+  },
+  {
+    name: 'H.264 (software)',
+    kind: 'wasm',
+    sizes: [1280], // longest edge; a software encoder must keep up live on a phone
+    kbps: 5000,
   },
 ];
+const CONVERT_KBPS = 4000; // H.264 bitrate for the after-take conversion
+// Converted video size (long edge). WhatsApp shrinks videos to ~850 px anyway,
+// and a smaller size converts about twice as fast on a phone.
+const CONVERT_LONG_EDGE = 960;
 const AUDIO_BITRATE = 128_000;
 const KEYFRAME_SECONDS = 2;
 const STALL_MS = 1500; // encoder gave no output this long after it started -> switch
@@ -123,6 +130,7 @@ export class Recorder {
     if (this._recording) return;
     this.fps = fps;
     this.fallbackReason = '';
+    this._toConvert = null; // only the newest take is ever converted
     this._audioSrc = audioTrack;
     this.startedAt = performance.now();
     if (!hasWebCodecs()) this.fallbackReason = 'this browser has no WebCodecs video encoder';
@@ -311,6 +319,11 @@ export class Recorder {
       output: (chunk, meta) => {
         this._outputCount++;
         this.muxer.addVideoChunk(chunk, meta);
+        if (this._keptChunks) {
+          const data = new Uint8Array(chunk.byteLength);
+          chunk.copyTo(data);
+          this._keptChunks.push({ type: chunk.type, timestamp: chunk.timestamp, duration: chunk.duration ?? undefined, data });
+        }
       },
       error: (err) => this._fail(err),
     });
@@ -335,6 +348,9 @@ export class Recorder {
       this._pumpAudio();
     }
 
+    // VP9 takes are converted to H.264 afterwards: keep the encoded frames
+    this._keptChunks = p.convert ? [] : null;
+    this._keptConfig = p.convert ? { codec: videoConfig.codec, codedWidth: this.width, codedHeight: this.height } : null;
     this.mode = 'webcodecs';
     this.via = p.name;
     this._pipelineIndex = index;
@@ -411,9 +427,112 @@ export class Recorder {
         return null;
       }
       this.muxer.finalize(); // keeps everything encoded so far, even after an encoder error
+      if (this._keptChunks?.length) this._toConvert = { chunks: this._keptChunks, config: this._keptConfig };
       return new Blob([this.target.buffer], { type: 'video/mp4' });
     } finally {
+      this._keptChunks = null;
       this._cleanupWebCodecs();
+    }
+  }
+
+  /* ------------------- after-take conversion to H.264 ------------------- */
+
+  /** True if the last take should be converted to H.264 (made with VP9). */
+  get canConvertToH264() {
+    return !!this._toConvert && hasWasmEncoder() && 'VideoDecoder' in window;
+  }
+
+  /**
+   * Re-encode the last (VP9) take as an H.264 MP4: decode its frames with
+   * WebCodecs and encode them with the software H.264 encoder in a worker,
+   * one by one (no frames dropped). `onProgress(0..1)`.
+   */
+  async convertToH264(onProgress) {
+    const job = this._toConvert;
+    this._toConvert = null;
+    if (!job) throw new Error('nothing to convert');
+    const { chunks, config } = job;
+    if (!(await VideoDecoder.isConfigSupported(config)).supported) throw new Error(`${config.codec} decoding not supported`);
+
+    const worker = new Worker(`${import.meta.env.BASE_URL}h264-worker.js`);
+    let ack = null; // resolves when the worker has encoded the frame in flight
+    let done = null;
+    let workerError = null;
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === 'ack' || m.type === 'ready') ack?.();
+      else if (m.type === 'done') done?.(m);
+      else if (m.type === 'error') {
+        workerError = new Error(m.message);
+        ack?.();
+        done?.(null);
+      }
+    };
+    worker.onerror = (e) => {
+      workerError = new Error(e.message || 'encoder worker failed');
+      ack?.();
+      done?.(null);
+    };
+    const waitAck = () => new Promise((r) => (ack = r));
+    try {
+      // load + set up the encoder
+      const k = Math.min(1, CONVERT_LONG_EDGE / Math.max(config.codedWidth, config.codedHeight));
+      const outW = align16(config.codedWidth * k);
+      const outH = align16(config.codedHeight * k);
+      const ready = waitAck();
+      worker.postMessage({ type: 'init', width: outW, height: outH, fps: this.fps ?? 30, kbps: CONVERT_KBPS });
+      await withTimeout(ready, WASM_READY_MS);
+      if (workerError) throw workerError;
+
+      const canvas = new OffscreenCanvas(outW, outH);
+      const ctx = canvas.getContext('2d', { alpha: false });
+      const frames = [];
+      let decodeError = null;
+      const decoder = new VideoDecoder({ output: (f) => frames.push(f), error: (err) => (decodeError = err) });
+      decoder.configure(config);
+      const t0 = chunks[0].timestamp;
+      let sent = 0;
+      // hand decoded frames to the encoder, waiting for each one (no drops)
+      const drain = async () => {
+        while (frames.length) {
+          const f = frames.shift();
+          ctx.drawImage(f, 0, 0, canvas.width, canvas.height);
+          const t = (f.timestamp - t0) / 1000;
+          f.close();
+          const bitmap = canvas.transferToImageBitmap();
+          const acked = waitAck();
+          worker.postMessage({ type: 'frame', bitmap, t }, [bitmap]);
+          await acked;
+          if (workerError) throw workerError;
+          sent++;
+          onProgress?.(Math.min(0.99, sent / chunks.length));
+        }
+      };
+      for (const c of chunks) {
+        if (decodeError) throw decodeError;
+        decoder.decode(new EncodedVideoChunk(c));
+        // let the decoder catch up, then encode what it produced
+        while (decoder.decodeQueueSize > 2) await new Promise((r) => setTimeout(r, 0));
+        await drain();
+      }
+      await decoder.flush();
+      await drain();
+      decoder.close();
+      if (!sent) throw new Error('no frames could be decoded');
+
+      const result = await withTimeout(
+        new Promise((r) => {
+          done = r;
+          worker.postMessage({ type: 'finish' });
+        }),
+        WASM_FINISH_MS,
+      );
+      if (workerError || !result?.buffer) throw workerError ?? new Error('the encoder did not finish');
+      onProgress?.(1);
+      this.via = 'VP9 → H.264';
+      return new Blob([result.buffer], { type: 'video/mp4' });
+    } finally {
+      worker.terminate();
     }
   }
 

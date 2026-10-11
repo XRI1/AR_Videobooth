@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '5.2'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '5.3'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -425,9 +425,23 @@ async function stopRecording() {
       recorder.stop(),
       new Promise((_, reject) => setTimeout(() => reject(new Error('the phone took too long to finish the file')), 30000)),
     ]);
-    if (blob?.size) {
+    let video = blob;
+    if (video?.size && recorder.canConvertToH264) {
+      // recorded with VP9 (this phone's H.264 encoder doesn't work): convert so
+      // WhatsApp accepts it; keep the original if converting fails
+      try {
+        toast('Making the video WhatsApp-ready… 0%', 120000);
+        video = await recorder.convertToH264((f) => {
+          $('toast').textContent = `Making the video WhatsApp-ready… ${Math.round(f * 100)}%`;
+        });
+      } catch (err) {
+        console.warn('H.264 conversion failed, keeping the original', err);
+        video = blob;
+      }
+    }
+    if (video?.size) {
       toast('Video saved', 1200);
-      showResult(blob, 'video');
+      showResult(video, 'video');
     } else toast("This take could not be saved (the phone's video encoder failed). Please record again: the next take uses a different encoder.", 6000);
   } catch (err) {
     console.error(err);
