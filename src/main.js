@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '5.4'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '5.5'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -430,9 +430,9 @@ async function stopRecording() {
       // recorded with VP9 (this phone's H.264 encoder doesn't work): convert so
       // WhatsApp accepts it; keep the original if converting fails
       try {
-        toast('Making the video WhatsApp-ready…', 300000);
+        toast('Saving video…', 300000);
         video = await recorder.convertToH264((f) => {
-          $('toast').textContent = `Making the video WhatsApp-ready… ${Math.round(f * 100)}%`;
+          $('toast').textContent = `Saving video… ${Math.round(f * 100)}%`;
         });
       } catch (err) {
         console.warn('H.264 conversion failed, keeping the original', err);
