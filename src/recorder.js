@@ -9,21 +9,39 @@
 
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
-const MEDIARECORDER_MP4 = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4'];
+// MP4 types MediaRecorder may support (Safari; Chrome 126+ incl. Android)
+const MEDIARECORDER_MP4 = [
+  'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+  'video/mp4;codecs=avc1.42E01E,opus',
+  'video/mp4;codecs=avc1.42E01E',
+  'video/mp4;codecs=avc1,mp4a.40.2',
+  'video/mp4;codecs=avc1,opus',
+  'video/mp4;codecs=avc1',
+  'video/mp4;codecs=avc3',
+  'video/mp4',
+];
 const MEDIARECORDER_WEBM = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
-// H.264 profiles/levels to try (High, Main, Baseline at level 4.0 cover 1080x1920)
-const AVC_CODECS = ['avc1.640028', 'avc1.4d0028', 'avc1.42e028', 'avc1.640033', 'avc1.42e033'];
+// H.264 profiles/levels to try (High, Main, Baseline; level 4.0 covers 1080x1920,
+// 5.1 larger, 3.1 is the most widely supported for 720p)
+const AVC_CODECS = ['avc1.640028', 'avc1.4d0028', 'avc1.42e028', 'avc1.640033', 'avc1.42e033', 'avc1.42001f', 'avc1.4d001f'];
+// Longest edge to try, best first. Many Android hardware encoders reject the
+// exact screen size (e.g. 1080x2400 or sizes not a multiple of 16) but accept
+// a slightly smaller, 16-aligned one.
+const SIZE_STEPS = [0, 1920, 1600, 1280, 960];
 const VIDEO_BITRATE = 10_000_000;
 const AUDIO_BITRATE = 128_000;
 const KEYFRAME_SECONDS = 2;
 
 const even = (n) => Math.max(2, Math.floor(n / 2) * 2);
+const align16 = (n) => Math.max(16, Math.floor(n / 16) * 16);
 const pickType = (list) => list.find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || '';
 
 export class Recorder {
   constructor(canvas) {
     this.canvas = canvas;
     this.mode = null; // 'webcodecs' | 'mediarecorder'
+    this.fallbackReason = ''; // why WebCodecs MP4 wasn't used (shown if the result is WebM)
+    this._configCache = new Map(); // canvas size -> working encoder config (or null)
     this.startedAt = 0;
     this._recording = false;
   }
@@ -41,16 +59,26 @@ export class Recorder {
     return this._type?.startsWith('video/mp4') ? 'mp4' : 'webm';
   }
 
+  /** Find a working MP4 encoder setup ahead of time, so pressing record starts instantly. */
+  prepare(fps = 30) {
+    this.fps = fps;
+    if ('VideoEncoder' in window && 'VideoFrame' in window) this._pickVideoConfig().catch(() => {});
+  }
+
   /** Start recording. Uses the best available way to get an MP4. */
   async start(audioTrack = null, fps = 30) {
     if (this._recording) return;
     this.fps = fps;
-    if (await this._webCodecsMp4Supported()) {
+    this.fallbackReason = '';
+    if (!('VideoEncoder' in window) || !('VideoFrame' in window)) {
+      this.fallbackReason = 'this browser has no WebCodecs video encoder';
+    } else {
       try {
         await this._startWebCodecs(audioTrack, fps);
         return;
       } catch (err) {
         console.warn('WebCodecs MP4 recording failed to start, using MediaRecorder', err);
+        this.fallbackReason = err.message || String(err);
         this._cleanupWebCodecs();
       }
     }
@@ -87,32 +115,81 @@ export class Recorder {
 
   /* --------------------------- WebCodecs -> MP4 --------------------------- */
 
-  async _webCodecsMp4Supported() {
-    if (!('VideoEncoder' in window) || !('VideoFrame' in window)) return false;
-    return !!(await this._pickVideoConfig());
+  /** Candidate output sizes: the canvas size, then 16-aligned and smaller ones (same aspect). */
+  _candidateSizes() {
+    const cw = this.canvas.width;
+    const ch = this.canvas.height;
+    const out = [];
+    const seen = new Set();
+    const add = (w, h) => {
+      const key = `${w}x${h}`;
+      if (w >= 16 && h >= 16 && !seen.has(key)) {
+        seen.add(key);
+        out.push({ width: w, height: h });
+      }
+    };
+    add(even(cw), even(ch));
+    for (const edge of SIZE_STEPS) {
+      const k = edge ? Math.min(1, edge / Math.max(cw, ch)) : 1;
+      add(align16(cw * k), align16(ch * k));
+    }
+    return out;
   }
 
+  /**
+   * Find an H.264 encoder config that really works on this device:
+   * isConfigSupported() first, then a test encode of one frame (some Android
+   * encoders claim support and then fail on the first frame).
+   */
   async _pickVideoConfig() {
-    const width = even(this.canvas.width);
-    const height = even(this.canvas.height);
-    for (const codec of AVC_CODECS) {
-      const config = {
-        codec,
-        width,
-        height,
-        bitrate: VIDEO_BITRATE,
-        framerate: this.fps ?? 30,
-        latencyMode: 'realtime',
-        avc: { format: 'avc' },
-      };
-      try {
-        const { supported } = await VideoEncoder.isConfigSupported(config);
-        if (supported) return config;
-      } catch {
-        /* try next */
+    const cacheKey = `${this.canvas.width}x${this.canvas.height}@${this.fps}`;
+    if (this._configCache.has(cacheKey)) return this._configCache.get(cacheKey);
+    let found = null;
+    search: for (const size of this._candidateSizes()) {
+      for (const codec of AVC_CODECS) {
+        for (const extra of [{ latencyMode: 'realtime' }, {}, { hardwareAcceleration: 'prefer-software' }]) {
+          const config = { codec, ...size, bitrate: VIDEO_BITRATE, framerate: this.fps ?? 30, avc: { format: 'avc' }, ...extra };
+          try {
+            if (!(await VideoEncoder.isConfigSupported(config)).supported) continue;
+          } catch {
+            continue;
+          }
+          if (await this._probeEncoder(config)) {
+            found = config;
+            break search;
+          }
+        }
       }
     }
-    return null;
+    this._configCache.set(cacheKey, found);
+    return found;
+  }
+
+  /** Encode one blank frame with `config`; true if the encoder produced output without errors. */
+  async _probeEncoder(config) {
+    let ok = false;
+    let failed = false;
+    const enc = new VideoEncoder({ output: () => (ok = true), error: () => (failed = true) });
+    try {
+      enc.configure(config);
+      const cv = document.createElement('canvas');
+      cv.width = config.width;
+      cv.height = config.height;
+      cv.getContext('2d').fillRect(0, 0, cv.width, cv.height);
+      const frame = new VideoFrame(cv, { timestamp: 0 });
+      enc.encode(frame, { keyFrame: true });
+      frame.close();
+      await Promise.race([enc.flush(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2500))]);
+    } catch {
+      failed = true;
+    } finally {
+      try {
+        if (enc.state !== 'closed') enc.close();
+      } catch {
+        /* ignore */
+      }
+    }
+    return ok && !failed;
   }
 
   async _pickAudioConfig(audioTrack) {
@@ -134,7 +211,7 @@ export class Recorder {
 
   async _startWebCodecs(audioTrack, fps) {
     const videoConfig = await this._pickVideoConfig();
-    if (!videoConfig) throw new Error('No H.264 encoder');
+    if (!videoConfig) throw new Error('the phone\'s H.264 encoder refused every size/profile tried');
     const audio = await this._pickAudioConfig(audioTrack);
     this.width = videoConfig.width;
     this.height = videoConfig.height;

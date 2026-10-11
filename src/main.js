@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '4.8'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '4.9'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -144,6 +144,7 @@ async function start(file = null) {
     $('intro').classList.add('hidden');
     $('hud-top').classList.remove('hidden');
     $('hud-bottom').classList.remove('hidden');
+    setTimeout(() => recorder.prepare(), 1500); // after the canvas has its final size
     window.addEventListener('resize', () => {
       ar.resize();
       layoutBanner();
@@ -399,6 +400,10 @@ async function startRecording() {
     return;
   } finally {
     recBusy = false;
+  }
+  if (recorder.extension !== 'mp4') {
+    // should be rare now; say why so it can be fixed
+    toast(`Recording as WebM (MP4 not available: ${recorder.fallbackReason || 'browser has no MP4 recorder'})`, 6000);
   }
   // (don't reset the heading while locked: it would snap the text to the front)
   if (gyro.enabled && !ar.locked) gyro.reset();
