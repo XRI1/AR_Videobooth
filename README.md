@@ -48,6 +48,17 @@ npm run build
 
 Upload the `dist/` folder to any static HTTPS host (Vercel, Netlify, GitHub Pages, Cloudflare Pages, S3 + CloudFront). It uses relative paths, so it works from a sub-folder too. **Redeploy after every code change.** A phone opening the hosted link only gets the new version once it's deployed; check the version number in settings.
 
+## Android app (APK)
+
+The booth is also packaged as an Android app: a **Trusted Web Activity** that opens `https://ar-videobooth-khaki.vercel.app/` full-screen in Chrome. The app code is unchanged, and AR lock, camera, recording and upload work exactly as in Chrome. Because the app loads the live site, **every Vercel deploy updates the app too**; no reinstall needed.
+
+- Web side (in this repo): [public/manifest.webmanifest](public/manifest.webmanifest), the icons in [public/icons/](public/icons/), and [public/.well-known/assetlinks.json](public/.well-known/assetlinks.json). The last one proves the app owns the site, so Android hides Chrome's address bar. It contains the signing key's SHA-256 fingerprint; if the key ever changes, update it.
+- Android project: `Desktop\GutSynbio_APK` (outside this repo), made with [Bubblewrap](https://github.com/GoogleChromeLabs/bubblewrap). Package id `com.gutsynbio.arbooth`.
+  - `1-create-signing-key.bat` creates `android.keystore` (done once).
+  - `2-build-apk.bat` builds `app-release-signed.apk` (install on phones) and `app-release-bundle.aab` (for Google Play).
+- **Keep `android.keystore` and its password safe and backed up.** Every update must be signed with the same key, or phones refuse to install it over the old app.
+- To release a new app version (only needed if the app shell changes, e.g. name or icon), raise `appVersionCode` and `appVersion` in `twa-manifest.json`, then run `npx bubblewrap update` and `2-build-apk.bat`.
+
 ## Video upload backend
 
 Recorded videos are sent to `POST {BACKEND_URL}/api/videos/upload` as `multipart/form-data` (field `video`, max 250 MB). The response includes `qrCode` (a PNG data URL), which the result screen shows, and `viewUrl`, which the QR points to. See [src/uploader.js](src/uploader.js).

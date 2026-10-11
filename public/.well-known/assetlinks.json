@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.gutsynbio.arbooth",
+      "sha256_cert_fingerprints": [
+        "91:B6:44:F7:AE:81:D5:00:34:A9:0E:88:8F:E9:8C:1F:03:C2:92:79:CB:BC:48:ED:9B:CA:79:23:07:B2:14:FB"
+      ]
+    }
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "name": "Gut Synbio AR Booth",
+  "short_name": "Gut Synbio",
+  "description": "AR 360° video booth: 3D brand effects around a person, recorded as MP4.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#0a1aa6",
+  "theme_color": "#0a1aa6",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
