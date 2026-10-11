@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '5.0'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '5.1'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -122,7 +122,7 @@ async function start(file = null) {
     ar.setVideo(camera.video);
     ar.setMirrored(camera.mirrored);
     recorder = new Recorder($('stage'));
-    recorder.onFallback = (reason) => toast(`Switched recorder (${reason})`, 3000);
+    recorder.onFallback = (reason) => toast(`Switched recorder: ${reason}`, 3500);
 
     status.textContent = 'Loading 3D text & AI body tracking…';
     const [font, brandLogo] = await Promise.all([
@@ -428,7 +428,7 @@ async function stopRecording() {
     if (blob?.size) {
       toast('Video saved', 1200);
       showResult(blob, 'video');
-    } else toast('Recording failed on this phone, please record again (it will use a different recorder).', 5000);
+    } else toast("This take could not be saved (the phone's video encoder failed). Please record again: the next take uses a different encoder.", 6000);
   } catch (err) {
     console.error(err);
     toast(`Saving the video failed: ${err.message}`);
