@@ -15,6 +15,7 @@
         "@fontsource/fredoka": "^5.3.0",
         "@fontsource/nunito": "^5.3.0",
         "@mediapipe/tasks-vision": "^1.0.1",
+        "h264-mp4-encoder": "^1.0.12",
         "mp4-muxer": "^5.2.2",
         "three": "^0.186.1"
     },

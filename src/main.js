@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '5.1'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '5.2'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -423,7 +423,7 @@ async function stopRecording() {
     // never leave the operator stuck on "Saving video..."
     const blob = await Promise.race([
       recorder.stop(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('the phone took too long to finish the file')), 15000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('the phone took too long to finish the file')), 30000)),
     ]);
     if (blob?.size) {
       toast('Video saved', 1200);

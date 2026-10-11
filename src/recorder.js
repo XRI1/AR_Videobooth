@@ -3,10 +3,13 @@
 // MP4 is the goal, because every phone, gallery and messaging app plays it.
 // Ways to get there, best first:
 //   1. WebCodecs H.264 (hardware) + mp4-muxer -> standard MP4.
-//   2. WebCodecs VP9 (software, no hardware needed) + mp4-muxer -> MP4 file
-//      with VP9 video. For phones whose H.264 encoder is missing or broken.
-//   3. MediaRecorder with native MP4 (Safari / iOS, Chrome 126+).
-//   4. MediaRecorder WebM, as a last resort.
+//   2. H.264 in software (WebAssembly encoder in a worker, public/h264-worker.js)
+//      -> standard MP4, for phones whose hardware H.264 encoder is broken.
+//      Still H.264, so WhatsApp and every gallery accept it.
+//   3. WebCodecs VP9 (software) + mp4-muxer -> MP4 file with VP9 video
+//      (plays in galleries/Chrome, but WhatsApp rejects it).
+//   4. MediaRecorder with native MP4 (Safari / iOS, Chrome 126+).
+//   5. MediaRecorder WebM, as a last resort.
 // Each WebCodecs setup is test-encoded before use, and if an encoder stalls
 // or fails during a take the recording switches to the next way on the fly,
 // so a take is never lost and saving never hangs.
@@ -43,6 +46,12 @@ const PIPELINES = [
     avc: true,
   },
   {
+    name: 'H.264 (software)',
+    kind: 'wasm',
+    sizes: [1280], // longest edge; a software encoder must keep up live on a phone
+    kbps: 5000,
+  },
+  {
     name: 'VP9',
     muxCodec: 'vp9',
     codecs: ['vp09.00.31.08', 'vp09.00.21.08', 'vp09.00.10.08'],
@@ -56,6 +65,10 @@ const AUDIO_BITRATE = 128_000;
 const KEYFRAME_SECONDS = 2;
 const STALL_MS = 1500; // encoder gave no output this long after it started -> switch
 const STOP_TIMEOUT_MS = 5000; // never wait longer than this for an encoder/recorder to finish
+const WASM_READY_MS = 10000; // software encoder: time allowed to load + compile
+const WASM_FINISH_MS = 20000; // software encoder: time allowed to finish the file
+const WASM_STALL_MS = 3000; // software encoder: no progress this long -> switch
+const hasWasmEncoder = () => 'Worker' in window && 'OffscreenCanvas' in window && typeof WebAssembly === 'object';
 
 const even = (n) => Math.max(2, Math.floor(n / 2) * 2);
 const align16 = (n) => Math.max(16, Math.floor(n / 16) * 16);
@@ -95,7 +108,13 @@ export class Recorder {
     this.fps = fps;
     if (!hasWebCodecs()) return;
     (async () => {
-      for (const p of PIPELINES) if (await this._pickVideoConfig(p)) return;
+      for (const p of PIPELINES) {
+        if (p.kind === 'wasm') {
+          this._warmWasm(); // hardware H.264 unusable: load the software encoder now
+          return;
+        }
+        if (await this._pickVideoConfig(p)) return;
+      }
     })().catch(() => {});
   }
 
@@ -116,7 +135,9 @@ export class Recorder {
    * holds the frame). Only used by the WebCodecs path.
    */
   captureFrame() {
-    if (!this._recording || this.mode !== 'webcodecs') return;
+    if (!this._recording) return;
+    if (this.mode === 'wasm') return this._captureWasm();
+    if (this.mode !== 'webcodecs') return;
     const now = performance.now();
     // Encoder failed, or stalled (no output at all) since it started: switch
     // to the next way now instead of producing an empty / never-finishing file.
@@ -146,6 +167,7 @@ export class Recorder {
   async stop() {
     if (!this._recording) return null;
     this._recording = false;
+    if (this.mode === 'wasm') return this._stopWasm();
     return this.mode === 'webcodecs' ? this._stopWebCodecs() : this._stopMediaRecorder();
   }
 
@@ -157,12 +179,14 @@ export class Recorder {
       const p = PIPELINES[i];
       if (this._broken.has(p.name)) continue;
       try {
-        await this._startWebCodecs(p, i);
+        if (p.kind === 'wasm') await this._startWasm(p, i);
+        else await this._startWebCodecs(p, i);
         return true;
       } catch (err) {
         console.warn(`${p.name} MP4 recording unavailable`, err);
         this.fallbackReason = err.message || String(err);
         this._cleanupWebCodecs();
+        this._cleanupWasm();
       }
     }
     return false;
@@ -352,6 +376,7 @@ export class Recorder {
     this.fallbackReason = `${reason} on this phone`;
     this._stopAudioPump();
     this._cleanupWebCodecs();
+    this._cleanupWasm();
     this._recording = false;
     (async () => {
       try {
@@ -404,6 +429,118 @@ export class Recorder {
     this._audioReader = null;
     this._audioTrack = null;
     this.muxer = this.target = null;
+  }
+
+  /* ----------------------- H.264 in software (worker) ----------------------- */
+
+  /** Start loading the software encoder in the background (no-op if already loaded). */
+  _warmWasm() {
+    if (this._wasmWorker || !hasWasmEncoder()) return;
+    try {
+      this._wasmWorker = new Worker(`${import.meta.env.BASE_URL}h264-worker.js`);
+    } catch (err) {
+      console.warn('Software H.264 encoder unavailable', err);
+    }
+  }
+
+  async _startWasm(p, index) {
+    if (!hasWasmEncoder()) throw new Error('no software encoder support (Worker/OffscreenCanvas)');
+    this._warmWasm();
+    const worker = this._wasmWorker;
+    if (!worker) throw new Error('software H.264 encoder failed to load');
+    const size = this._candidateSizes({ sizes: p.sizes })[0];
+    this.width = size.width;
+    this.height = size.height;
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('software H.264 encoder took too long to load')), WASM_READY_MS);
+      worker.onerror = (e) => {
+        clearTimeout(timer);
+        reject(new Error(e.message || 'software H.264 encoder failed to load'));
+      };
+      worker.onmessage = (e) => {
+        if (e.data.type === 'ready') {
+          clearTimeout(timer);
+          resolve();
+        } else if (e.data.type === 'error') {
+          clearTimeout(timer);
+          reject(new Error(e.data.message));
+        }
+      };
+      worker.postMessage({ type: 'init', width: this.width, height: this.height, fps: this.fps, kbps: p.kbps });
+    });
+    this._failed = false;
+    this._inFlight = 0;
+    this._wasmAcks = 0;
+    this._wasmSent = 0;
+    worker.onerror = (e) => this._fail(e);
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === 'ack') {
+        this._inFlight--;
+        this._wasmAcks++;
+        this._lastAckAt = performance.now();
+      } else if (m.type === 'error') this._fail(new Error(m.message));
+      else if (m.type === 'done') this._wasmDone?.(m);
+    };
+    this.frameCanvas = new OffscreenCanvas(this.width, this.height);
+    this.frameCtx = this.frameCanvas.getContext('2d', { alpha: false });
+    this.mode = 'wasm';
+    this.via = p.name;
+    this._pipelineIndex = index;
+    this._type = 'video/mp4';
+    this._lastFrameAt = -Infinity;
+    this._segmentStart = this._lastAckAt = performance.now();
+    this._recording = true;
+  }
+
+  _captureWasm() {
+    const now = performance.now();
+    // broken before producing anything, or no progress for a while: next way
+    const stuck = this._inFlight > 0 && now - this._lastAckAt > WASM_STALL_MS;
+    if ((this._failed || stuck) && this._wasmAcks === 0) {
+      this._switch(`the software H.264 encoder ${this._failed ? 'failed' : 'stalled'}`);
+      return;
+    }
+    if (this._failed) return; // broke after producing video: keep what we have
+    if (now - this._lastFrameAt < 1000 / this.fps - 4) return; // keep ~fps
+    if (this._inFlight >= 2) return; // encoder busy: skip (the worker repeats frames to keep real speed)
+    this._lastFrameAt = now;
+    this.frameCtx.drawImage(this.canvas, 0, 0, this.width, this.height);
+    const bitmap = this.frameCanvas.transferToImageBitmap();
+    this._inFlight++;
+    this._wasmSent++;
+    this._wasmWorker.postMessage({ type: 'frame', bitmap, t: now - this._segmentStart }, [bitmap]);
+  }
+
+  async _stopWasm() {
+    const worker = this._wasmWorker;
+    try {
+      if (!this._wasmAcks && !this._wasmSent) return null;
+      const result = await withTimeout(
+        new Promise((resolve) => {
+          this._wasmDone = resolve;
+          worker.postMessage({ type: 'finish' });
+        }),
+        WASM_FINISH_MS,
+      );
+      if (!result?.buffer || !result.frames) {
+        this._broken.add(this.via);
+        return null;
+      }
+      return new Blob([result.buffer], { type: 'video/mp4' });
+    } finally {
+      this._wasmDone = null;
+      this._cleanupWasm(); // a fresh worker per take keeps memory low
+    }
+  }
+
+  _cleanupWasm() {
+    try {
+      this._wasmWorker?.terminate();
+    } catch {
+      /* ignore */
+    }
+    this._wasmWorker = null;
   }
 
   /* ----------------------------- MediaRecorder ----------------------------- */
