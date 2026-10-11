@@ -32,7 +32,11 @@ const VIDEO_BITRATE = 10_000_000;
 const AUDIO_BITRATE = 128_000;
 const KEYFRAME_SECONDS = 2;
 
+const STALL_MS = 1500; // encoder gave no output this long after recording started -> switch recorder
+const STOP_TIMEOUT_MS = 5000; // never wait longer than this for an encoder/recorder to finish
 const even = (n) => Math.max(2, Math.floor(n / 2) * 2);
+/** Resolve with `p`, or with undefined after `ms` (so a stuck encoder can't hang saving). */
+const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
 const align16 = (n) => Math.max(16, Math.floor(n / 16) * 16);
 const pickType = (list) => list.find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || '';
 
@@ -42,6 +46,8 @@ export class Recorder {
     this.mode = null; // 'webcodecs' | 'mediarecorder'
     this.fallbackReason = ''; // why WebCodecs MP4 wasn't used (shown if the result is WebM)
     this._configCache = new Map(); // canvas size -> working encoder config (or null)
+    this._webCodecsBroken = ''; // set when the encoder stalled/failed this session: skip it next time
+    this.onFallback = null; // (reason) => void, called if recording switches recorder mid-take
     this.startedAt = 0;
     this._recording = false;
   }
@@ -70,8 +76,11 @@ export class Recorder {
     if (this._recording) return;
     this.fps = fps;
     this.fallbackReason = '';
+    this._audioSrc = audioTrack;
     if (!('VideoEncoder' in window) || !('VideoFrame' in window)) {
       this.fallbackReason = 'this browser has no WebCodecs video encoder';
+    } else if (this._webCodecsBroken) {
+      this.fallbackReason = this._webCodecsBroken;
     } else {
       try {
         await this._startWebCodecs(audioTrack, fps);
@@ -90,8 +99,15 @@ export class Recorder {
    * holds the frame). Only used by the WebCodecs path.
    */
   captureFrame() {
-    if (!this._recording || this.mode !== 'webcodecs' || this._failed) return;
+    if (!this._recording || this.mode !== 'webcodecs') return;
     const now = performance.now();
+    // Encoder stalled (no output at all) or broke right at the start: switch to
+    // MediaRecorder now instead of producing an empty / never-finishing file.
+    if ((this._failed && this._outputCount === 0) || (this._outputCount === 0 && this._frameCount > 0 && now - this.startedAt > STALL_MS)) {
+      this._switchToMediaRecorder(this._failed ? 'the video encoder failed' : 'the video encoder stalled');
+      return;
+    }
+    if (this._failed) return;
     if (now - this._lastFrameAt < 1000 / this.fps - 4) return; // keep ~fps
     if (this.videoEncoder.encodeQueueSize > 3) return; // encoder busy: drop a frame
     this._lastFrameAt = now;
@@ -147,7 +163,8 @@ export class Recorder {
     let found = null;
     search: for (const size of this._candidateSizes()) {
       for (const codec of AVC_CODECS) {
-        for (const extra of [{ latencyMode: 'realtime' }, {}, { hardwareAcceleration: 'prefer-software' }]) {
+        // hardware first (software H.264 is too slow on phones for live recording)
+        for (const extra of [{ hardwareAcceleration: 'prefer-hardware', latencyMode: 'realtime' }, { latencyMode: 'realtime' }, {}]) {
           const config = { codec, ...size, bitrate: VIDEO_BITRATE, framerate: this.fps ?? 30, avc: { format: 'avc' }, ...extra };
           try {
             if (!(await VideoEncoder.isConfigSupported(config)).supported) continue;
@@ -228,8 +245,12 @@ export class Recorder {
     });
 
     this._failed = false;
+    this._outputCount = 0;
     this.videoEncoder = new VideoEncoder({
-      output: (chunk, meta) => this.muxer.addVideoChunk(chunk, meta),
+      output: (chunk, meta) => {
+        this._outputCount++;
+        this.muxer.addVideoChunk(chunk, meta);
+      },
       error: (err) => this._fail(err),
     });
     this.videoEncoder.configure(videoConfig);
@@ -280,19 +301,44 @@ export class Recorder {
     this._failed = true;
   }
 
+  /** Mid-take switch from WebCodecs to MediaRecorder (the take continues from now). */
+  _switchToMediaRecorder(reason) {
+    console.warn(`Switching recorder: ${reason}`);
+    this._webCodecsBroken = `${reason} on this phone`;
+    this.fallbackReason = this._webCodecsBroken;
+    try {
+      this._audioReader?.cancel();
+    } catch {
+      /* ignore */
+    }
+    this._audioTrack?.stop();
+    this._cleanupWebCodecs();
+    this._recording = false;
+    try {
+      this._startMediaRecorder(this._audioSrc, this.fps);
+      this.onFallback?.(this.fallbackReason);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
   async _stopWebCodecs() {
     try {
-      await this._audioReader?.cancel();
+      await withTimeout(this._audioReader?.cancel(), 1000);
     } catch {
       /* ignore */
     }
     this._audioTrack?.stop();
     try {
-      if (this.videoEncoder?.state === 'configured') await this.videoEncoder.flush();
-      if (this.audioEncoder?.state === 'configured') await this.audioEncoder.flush();
-      this.muxer.finalize();
-      const blob = new Blob([this.target.buffer], { type: 'video/mp4' });
-      return this._frameCount > 0 && !this._failed ? blob : null;
+      // time-limited: a stuck hardware encoder must never hang "Saving video..."
+      if (this.videoEncoder?.state === 'configured') await withTimeout(this.videoEncoder.flush().catch(() => {}), STOP_TIMEOUT_MS);
+      if (this.audioEncoder?.state === 'configured') await withTimeout(this.audioEncoder.flush().catch(() => {}), STOP_TIMEOUT_MS);
+      if (!this._outputCount) {
+        this._webCodecsBroken = 'the video encoder produced no video on this phone';
+        return null;
+      }
+      this.muxer.finalize(); // keeps everything encoded so far, even after an encoder error
+      return new Blob([this.target.buffer], { type: 'video/mp4' });
     } finally {
       this._cleanupWebCodecs();
     }
@@ -335,13 +381,22 @@ export class Recorder {
   _stopMediaRecorder() {
     return new Promise((resolve) => {
       const rec = this.mediaRecorder;
-      rec.onstop = () => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
         const blob = new Blob(this.chunks, { type: this._type });
-        this.stream.getTracks().forEach((t) => t.stop());
+        this.stream?.getTracks().forEach((t) => t.stop());
         this.mediaRecorder = null;
         resolve(blob);
       };
-      rec.stop();
+      rec.onstop = finish;
+      setTimeout(finish, STOP_TIMEOUT_MS); // never hang if 'stop' doesn't fire
+      try {
+        rec.stop();
+      } catch {
+        finish();
+      }
     });
   }
 }

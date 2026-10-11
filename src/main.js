@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '4.9'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '5.0'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -122,6 +122,7 @@ async function start(file = null) {
     ar.setVideo(camera.video);
     ar.setMirrored(camera.mirrored);
     recorder = new Recorder($('stage'));
+    recorder.onFallback = (reason) => toast(`Switched recorder (${reason})`, 3000);
 
     status.textContent = 'Loading 3D text & AI body tracking…';
     const [font, brandLogo] = await Promise.all([
@@ -419,11 +420,15 @@ async function stopRecording() {
   document.body.classList.remove('is-recording');
   toast('Saving video…', 8000);
   try {
-    const blob = await recorder.stop();
+    // never leave the operator stuck on "Saving video..."
+    const blob = await Promise.race([
+      recorder.stop(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('the phone took too long to finish the file')), 15000)),
+    ]);
     if (blob?.size) {
       toast('Video saved', 1200);
       showResult(blob, 'video');
-    } else toast('Recording failed — nothing was captured.');
+    } else toast('Recording failed on this phone, please record again (it will use a different recorder).', 5000);
   } catch (err) {
     console.error(err);
     toast(`Saving the video failed: ${err.message}`);
