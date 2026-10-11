@@ -178,27 +178,32 @@ export function createLogoText({ image, icons = true, size, radius, clippingPlan
   const logoW = size * 3.2;
   const logoH = (logoW * Math.round(image.naturalHeight * LOGO_CROP)) / image.naturalWidth;
   // logo body: solid navy like its outline
-  const signs = [{ img: image, crop: LOGO_CROP, w: logoW, x: 0, y: 0, depth: logoW * 0.045, body: ['#1a3fd0', '#06106a'] }];
+  const signs = [{ img: image, crop: LOGO_CROP, w: logoW, x: 0, y: 0, depth: logoW * 0.045, body: ['#1a3fd0', '#06106a'], glow: true }];
   const iconH = logoH * ICON_HEIGHT;
   let span = logoW;
   const iconW = iconH * ICON_ASPECT;
   if (icons) span = 2 * (logoW / 2 + size * ICON_GAP + iconW);
   const bendR = Math.max(radius, span / (FRONT_ARC * 0.75));
 
-  for (const sign of signs) addExtrudedSign(ring, sign, { bendR, radius, clippingPlanes });
+  const ticks = [];
+  for (const sign of signs) {
+    const glow = addExtrudedSign(ring, sign, { bendR, radius, clippingPlanes });
+    if (glow) ticks.push((dt) => (glow.uniforms.uTime.value += dt));
+  }
+  ring.flowReverse = false; // settings: reverse the icons' movement (flow in toward the logo)
+  ring.tick = (dt) => ticks.forEach((t) => t(dt, ring.flowReverse));
   if (icons) {
-    const ticks = [];
     for (const [kind, side] of [['capsules', -1], ['cubes', 1]]) {
       const icon = createFlowIcon({ kind, mirror: side > 0, w: iconW, h: iconH, clippingPlanes });
       // flat at its spot on the curve, turned only slightly toward the side (faces the camera)
       const a = (side * (logoW / 2 + size * ICON_GAP + iconW / 2)) / bendR;
-      icon.group.position.set(bendR * Math.sin(a), 0, bendR * Math.cos(a) + radius - bendR);
+      // box bottom just under the logo's bottom: streams start by the logo and rise up the body's sides
+      const iconY = iconH / 2 - logoH * 0.6;
+      icon.group.position.set(bendR * Math.sin(a), iconY, bendR * Math.cos(a) + radius - bendR);
       icon.group.rotation.y = a * ICON_TURN;
       ring.inner.add(icon.group);
       ticks.push(icon.tick);
     }
-    ring.flowReverse = false; // settings: reverse the icons' movement (flow in toward the logo)
-    ring.tick = (dt) => ticks.forEach((t) => t(dt, ring.flowReverse));
   }
   ring.signHalfArc = (span / (2 * bendR)) * 1.3; // glitter keeps clear of this front sector (with margin)
 
@@ -232,7 +237,8 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
     const f = k / (LINES - 1);
     // starts spread along the top edge and down the outer edge
     const start = new THREE.Vector2(0.55 * (1 - f) * (1 - f), 1 - 0.55 * f * f);
-    const ctrl = new THREE.Vector2(start.x + 0.12, end.y + 0.04); // steep first, then flat into the end
+    // gentle curve (not flat by the logo): paths rise diagonally up the body's sides, bowing slightly outward
+    const ctrl = new THREE.Vector2((start.x + end.x) / 2 - 0.12, (start.y + end.y) / 2 + 0.08);
     const pts = [];
     for (let i = 0; i <= 20; i++) {
       const t = i / 20;
@@ -370,7 +376,7 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
  * One image sign: artwork face + stacked slices behind it, bent onto the curve.
  * `body` = [front, back] colours for a solid body, or null to darken the artwork itself.
  */
-function addExtrudedSign(ring, { img, crop, w, x, y, depth, body, flat }, { bendR, radius, clippingPlanes }) {
+function addExtrudedSign(ring, { img, crop, w, x, y, depth, body, flat, glow }, { bendR, radius, clippingPlanes }) {
   // textures: the artwork, and its silhouette in white (tinted per slice)
   const W = img.naturalWidth;
   const H = Math.round(img.naturalHeight * crop);
@@ -442,6 +448,80 @@ function addExtrudedSign(ring, { img, crop, w, x, y, depth, body, flat }, { bend
   face.renderOrder = 1;
   ring.inner.add(face);
   plane.dispose();
+  if (!glow) return null;
+
+  // --- glowing border: a soft halo around the silhouette, slightly in front of
+  // the body, colour sweeping lime -> cyan -> white -> blue along the logo ---
+  const pad = Math.round(W * 0.08);
+  const gw = W + 2 * pad;
+  const gh = H + 2 * pad;
+  const halo = document.createElement('canvas');
+  halo.width = gw;
+  halo.height = gh;
+  const hg = halo.getContext('2d');
+  // dilate the silhouette (a ring of offset copies), then blur it
+  const grow = document.createElement('canvas');
+  grow.width = gw;
+  grow.height = gh;
+  const gg = grow.getContext('2d');
+  const R = W * 0.018;
+  for (let i = 0; i < 16; i++) {
+    const t = (i / 16) * TAU;
+    gg.drawImage(sil, pad + Math.cos(t) * R, pad + Math.sin(t) * R);
+  }
+  hg.filter = `blur(${Math.round(W * 0.016)}px)`;
+  hg.drawImage(grow, 0, 0);
+  hg.drawImage(grow, 0, 0);
+  hg.drawImage(grow, 0, 0); // three times: bright, solid core
+  hg.filter = 'none';
+  const haloTex = new THREE.CanvasTexture(halo);
+  ring.extraTextures.push(haloTex);
+
+  const glowMat = new THREE.ShaderMaterial({
+    uniforms: { mask: { value: haloTex }, uTime: { value: 0 } },
+    vertexShader: /* glsl */ `
+      #include <clipping_planes_pars_vertex>
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+        #include <clipping_planes_vertex>
+      }`,
+    fragmentShader: /* glsl */ `
+      #include <clipping_planes_pars_fragment>
+      uniform sampler2D mask;
+      uniform float uTime;
+      varying vec2 vUv;
+      void main() {
+        #include <clipping_planes_fragment>
+        float a = texture2D(mask, vUv).a;
+        if (a < 0.01) discard;
+        // colour band travelling along the logo: lime -> cyan -> white -> blue
+        float s = fract(vUv.x * 0.9 + vUv.y * 0.35 - uTime * 0.22) * 4.0;
+        vec3 lime = vec3(0.71, 0.94, 0.12);
+        vec3 cyan = vec3(0.25, 0.85, 1.0);
+        vec3 white = vec3(1.0);
+        vec3 blue = vec3(0.12, 0.45, 1.0);
+        vec3 col = s < 1.0 ? mix(lime, cyan, s) : s < 2.0 ? mix(cyan, white, s - 1.0) : s < 3.0 ? mix(white, blue, s - 2.0) : mix(blue, lime, s - 3.0);
+        float pulse = 0.85 + 0.15 * sin(uTime * 3.0);
+        gl_FragColor = vec4(col, clamp(a * 1.6, 0.0, 1.0) * pulse);
+      }`,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    clipping: true,
+    clippingPlanes,
+  });
+  const gp = new THREE.PlaneGeometry((w * gw) / W, (h * gh) / H, 48, 1);
+  gp.translate(0, y, 0);
+  const gGeo = bendAroundCylinder(gp, bendR, a);
+  gGeo.translate(0, 0, radius - bendR - depth * 0.02); // just behind the face, in front of the body
+  gp.dispose();
+  const glowMesh = new THREE.Mesh(gGeo, glowMat);
+  glowMesh.renderOrder = 0.5;
+  ring.inner.add(glowMesh);
+  return glowMat;
 }
 
 /** Draws a round medallion badge ("20 YEARS" style) to a canvas texture. */
