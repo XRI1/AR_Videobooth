@@ -32,6 +32,9 @@ const LOCKED_POS_FILTER = [0.25, 0.5];
 const LOST_AFTER = 1.2; // seconds without a person before content hides
 const APPEAR_TIME = 0.55; // seconds for the pop-in / shrink-out animation
 const TURN_RATE = 12; // smoothing of lock / gyro rotations (1/s)
+const _v4 = new THREE.Vector3();
+const SIGN_HIDE_COS = -0.2; // camera more than ~100 deg around: hide the front sign
+const SIGN_SHOW_COS = -0.1; // ...and show it again once back within ~95 deg
 const OVERLAY_WIDTH = 1; // banner spans the full frame width (edge to edge)
 const OVERLAY_MAX_HEIGHT = 0.18; // ...but never taller than this share of the frame height
 const _overlaySize = new THREE.Vector2();
@@ -598,6 +601,7 @@ export class ARScene {
     }
 
     this.scene.updateMatrixWorld();
+    this._hideSignsFromBehind();
     if (this.rings.badge) faceCamera(this.rings.badge, this.camera);
 
     if (this.glitter) {
@@ -624,6 +628,28 @@ export class ARScene {
       const n = this.clipNormal.copy(a.hip).normalize(); // camera is at the origin
       n.addScaledVector(a.up, -n.dot(a.up)).normalize();
       this.clipPlane.setFromNormalAndCoplanarPoint(n, a.hip);
+    }
+  }
+
+  /**
+   * The logo and side icons stand in front of the person. Seen from behind,
+   * the body would hide them in real life, but the cut-out can't be relied on
+   * from the back, so hide them once the camera is clearly behind the person
+   * (with a little hysteresis so they don't flicker at the edge).
+   */
+  _hideSignsFromBehind() {
+    const cam = _v2.setFromMatrixPosition(this.camera.matrixWorld);
+    for (const ring of Object.values(this.rings)) {
+      if (!ring.static || !ring.outer.visible) continue;
+      const centre = _v3.setFromMatrixPosition(ring.outer.matrixWorld);
+      const front = _v4.set(0, 0, 1).transformDirection(ring.inner.matrixWorld); // the sign faces +Z
+      front.y = 0;
+      const toCam = cam.sub(centre).setY(0);
+      if (front.lengthSq() < 1e-6 || toCam.lengthSq() < 1e-6) continue;
+      const cos = front.normalize().dot(toCam.normalize());
+      ring._behind = ring._behind ? cos < SIGN_SHOW_COS : cos < SIGN_HIDE_COS;
+      ring.inner.visible = !ring._behind;
+      cam.setFromMatrixPosition(this.camera.matrixWorld);
     }
   }
 

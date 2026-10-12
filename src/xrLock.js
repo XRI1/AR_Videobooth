@@ -7,7 +7,7 @@
 // cut-out, text, fireworks) onto our own canvas, which Chrome shows via DOM
 // overlay, so the existing recorder keeps working.
 
-const PLACE_TIMEOUT_MS = 1500; // wait this long for a floor hit before estimating
+const PLACE_TIMEOUT_MS = 5000; // wait this long for a floor hit before estimating (ARCore needs a moment to find the floor)
 const NO_CAMERA_FRAMES = 90; // give up if camera-access never delivers images
 
 export class WorldLockXR {

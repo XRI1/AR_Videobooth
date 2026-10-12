@@ -2,11 +2,12 @@
 
 A browser-based AR video booth. Point a phone at a person and the 3D brand logo, rising glass capsules and cubes, sparklers and glitter appear around them, with the person correctly cut out so effects can pass behind their body. Press **Lock** to pin everything to a real spot in the room, walk the phone around the person and record. Tap **Submit** to upload the video, and a **QR code** appears so the guest can scan it and download the clip to their own phone. No app install needed.
 
-Current version: **5.5**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
+Current version: **5.6**. It's shown at the top of **Settings → Camera & tracking**; check it to confirm a phone has the latest code.
 
 ## Features
 
 - **3D brand logo "gut SYNBIO".** The front face is the real logo artwork ([public/brand/logo.webp](public/brand/logo.webp), with the small tagline cropped off), so colours, shapes and outline match the brand exactly. A solid navy body is extruded behind it from the logo's outline, so it looks like a thick 3D sign as you walk around, and a soft **glowing border** runs around the lettering with colours sweeping lime → cyan → white → blue. It is gently curved in front of the person. Replace `logo.webp` to change it. Untick **Brand 3D lettering** in settings to use your own 3D text instead (text, colours, italic, height, distance, size, font).
+- **Hidden from behind:** the logo and side icons stand in front of the person, so when you walk around behind them (more than about 100°) they disappear, as the body would hide them. They reappear as you come back round. The rising objects all around the body stay visible.
 - **3D icons beside the logo:** real 3D models (not pictures), built in code to match the brand artwork. Glass objects stream out from a point by the logo's lower corner, fanning out and growing as they rise up the sides of the body toward the frame edges, each trailing a short glowing tail. On the left, the **probiotic** icon uses glossy glass **capsules** (they point along their path); on the right, the **prebiotic** icon uses tumbling blue and lime glass **cubes**. Both add small glass bubbles. They have real depth, so they look right as you walk around, sit on the same curve as the logo and face the camera. The group shrinks slightly if needed to fit the portrait frame. Tap the **⇄ button** to the right of the record button (or tick **Reverse icon movement** in settings) to make them flow in toward the logo instead (the tails flip to stay behind them). The look is set in `createFlowIcon` in [src/rings.js](src/rings.js).
 - **Real occlusion.** A person segmentation mask cuts the person out of the video, so anything behind them is hidden by their body.
 - **Smooth body tracking.** Pose tracking keeps the text on the person's torso and scales it with their size. One Euro filtering removes jitter, and the text glides at 60 fps between 30 fps detections. It pops in when a person appears and shrinks away if they leave the frame.
@@ -94,7 +95,7 @@ When the phone supports ARCore, Lock switches Chrome into WebXR AR mode:
 3. The content is placed so it looks **exactly as it did before locking**: same size, shape and screen position. Internally, the pre-lock layout is corrected for the AR camera's wider lens and for the phone's tilt.
 4. It's attached to an **ARCore anchor on the floor**. ARCore refines anchors as it maps the room, and the app eases those corrections in so they never jump.
 
-The pill shows e.g. `AR locked · 2.5 m · anchored`. `(est.)` means no floor was found and the distance was estimated. If it stays on **Placing…**, move the phone gently side to side for a second so ARCore can find the floor.
+The pill shows e.g. `AR locked · 2.5 m · anchored`. `(est.)` means no floor was found and the distance was estimated. While it shows **Finding the floor…**, move the phone gently side to side with the person's feet in view; it waits up to 5 seconds for ARCore to find the floor before falling back to an estimate (`(est.)`, less accurate).
 
 Requirements: an [ARCore-supported phone](https://developers.google.com/ar/devices) with **Google Play Services for AR** installed, Chrome, and the page opened over `https://`. The camera image comes from WebXR camera-access and everything is drawn on the app's own canvas (shown through Chrome's DOM overlay), so the person cut-out and recording keep working in AR mode.
 

@@ -6,7 +6,7 @@ export const isMobile =
 
 const STORAGE_KEY = 'ar360.settings.v1';
 // Bump when a one-time change must reach saved settings (see loadSettings).
-const SETTINGS_REV = 8;
+const SETTINGS_REV = 9;
 
 export function defaultSettings() {
   return {
@@ -22,7 +22,7 @@ export function defaultSettings() {
       color: '#1a73e8',
       edge: '#ffffff',
       italic: true,
-      height: 0, // in torso units: 0 = hips, 1 = shoulders (logo centred at hip level)
+      height: 0.15, // in torso units: 0 = hips, 1 = shoulders (logo a little above hip level)
       radius: 1.3, // distance in front of the body (torso units)
       size: 0.3,
       speed: -0.8, // rad/s
@@ -123,6 +123,9 @@ export function loadSettings() {
     }
     if (saved && (saved.rev ?? 1) < 8) {
       s.ring1.height = 0; // rev 8: logo group centred at hip level
+    }
+    if (saved && (saved.rev ?? 1) < 9) {
+      s.ring1.height = 0.15; // rev 9: logo group a little higher
     }
     if (saved && saved.rev !== SETTINGS_REV) {
       s.rev = SETTINGS_REV;
