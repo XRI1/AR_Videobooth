@@ -165,10 +165,16 @@ const SIGN_LAYERS = 14; // slices that make up each extruded body
 const ICON_HEIGHT = 3.4; // side icon height relative to the logo's height (the icons are tall)
 const ICON_GAP = 0.03; // gap between logo and icon, in `size` units
 const ICON_TURN = 0.3; // icons sit on the curve but turn only this share of its angle, so they face the camera
-const ICON_ASPECT = 1.35;
-const ICON_FIT = 0.42; // share of each icon's width that must stay inside the frame // icon width / height (like the brand artwork)
+const ICON_ASPECT = 1.35; // flow icon width / height
+const ICON_FIT = 0.42; // share of each flow icon's width that must stay inside the frame
+// Picture icons (L. reuteri / GOS artwork as thick 3D signs beside the logo)
+const BADGE_HEIGHT = 1.7; // relative to the logo's height
+const BADGE_DEPTH = 0.09; // extruded thickness, relative to the icon's width
+const BADGE_SWAY = 0.22; // gentle side-to-side turn (radians) that shows off the 3D thickness
+const BADGE_BOB = 0.025; // gentle float up and down, relative to the icon's height
+const BADGE_FLOW_HEIGHT = 2.6; // flow icons streaming out of the picture signs: height relative to the logo's
 
-export function createLogoText({ image, icons = true, size, radius, clippingPlanes }) {
+export function createLogoText({ image, badges = {}, icons = true, size, radius, clippingPlanes }) {
   const ring = new OrbitRing();
   ring.direction = -1;
   ring.static = true;
@@ -179,9 +185,12 @@ export function createLogoText({ image, icons = true, size, radius, clippingPlan
   const logoH = (logoW * Math.round(image.naturalHeight * LOGO_CROP)) / image.naturalWidth;
   // logo body: solid navy like its outline
   const signs = [{ img: image, crop: LOGO_CROP, w: logoW, x: 0, y: 0, depth: logoW * 0.045, body: ['#1a3fd0', '#06106a'], glow: true }];
-  const iconH = logoH * ICON_HEIGHT;
+  // side icons: the L. reuteri / GOS pictures as 3D signs, or (without them) the 3D flow icons
+  const pictures = icons && (badges.left || badges.right);
+  const iconH = logoH * (pictures ? BADGE_HEIGHT : ICON_HEIGHT);
+  const ref = badges.left ?? badges.right;
+  const iconW = pictures ? (iconH * ref.naturalWidth) / ref.naturalHeight : iconH * ICON_ASPECT;
   let span = logoW;
-  const iconW = iconH * ICON_ASPECT;
   if (icons) span = 2 * (logoW / 2 + size * ICON_GAP + iconW);
   const bendR = Math.max(radius, span / (FRONT_ARC * 0.75));
 
@@ -192,7 +201,47 @@ export function createLogoText({ image, icons = true, size, radius, clippingPlan
   }
   ring.flowReverse = false; // settings: reverse the icons' movement (flow in toward the logo)
   ring.tick = (dt) => ticks.forEach((t) => t(dt, ring.flowReverse));
-  if (icons) {
+  if (pictures) {
+    let time = 0;
+    const floats = [];
+    for (const [img, side] of [[badges.left, -1], [badges.right, 1]]) {
+      if (!img) continue;
+      const group = new THREE.Group();
+      const a = (side * (logoW / 2 + size * ICON_GAP + iconW / 2)) / bendR;
+      group.position.set(bendR * Math.sin(a), 0, bendR * Math.cos(a) + radius - bendR);
+      const baseYaw = a * ICON_TURN;
+      group.rotation.y = baseYaw;
+      addExtrudedSign(ring, { img, crop: 1, w: iconW, x: 0, y: 0, depth: iconW * BADGE_DEPTH, body: null, parent: group }, { bendR, radius, clippingPlanes });
+      ring.inner.add(group);
+      floats.push({ group, baseYaw, phase: side > 0 ? Math.PI : 0 });
+    }
+    // gentle float + sway: the thick 3D body shows as the icons turn
+    ticks.push((dt) => {
+      time += dt;
+      for (const f of floats) {
+        f.group.position.y = Math.sin(time * 1.3 + f.phase) * BADGE_BOB * iconH;
+        f.group.rotation.y = f.baseYaw + Math.sin(time * 0.8 + f.phase) * BADGE_SWAY;
+      }
+    });
+    // moving 3D icons: capsules stream out of the top of the L. reuteri sign,
+    // cubes out of the GOS sign, fanning up and outward toward the frame edges
+    ring.hasFlowIcons = true; // the reverse button applies to these
+    const flowH = logoH * BADGE_FLOW_HEIGHT;
+    const flowW = flowH * ICON_ASPECT;
+    for (const [kind, side] of [['capsules', -1], ['cubes', 1]]) {
+      const icon = createFlowIcon({ kind, mirror: side > 0, w: flowW, h: flowH, clippingPlanes });
+      const signX = side * (logoW / 2 + size * ICON_GAP + iconW / 2);
+      // the streams' starting point (box's inner-bottom corner) sits on top of the sign's centre
+      const x = signX + side * flowW * 0.5;
+      const y = iconH * 0.35 + flowH * 0.45;
+      const a = x / bendR;
+      icon.group.position.set(bendR * Math.sin(a), y, bendR * Math.cos(a) + radius - bendR - iconW * BADGE_DEPTH);
+      icon.group.rotation.y = a * ICON_TURN;
+      ring.inner.add(icon.group);
+      ticks.push(icon.tick);
+    }
+  } else if (icons) {
+    ring.hasFlowIcons = true; // the reverse button only applies to these
     for (const [kind, side] of [['capsules', -1], ['cubes', 1]]) {
       const icon = createFlowIcon({ kind, mirror: side > 0, w: iconW, h: iconH, clippingPlanes });
       // flat at its spot on the curve, turned only slightly toward the side (faces the camera)
@@ -210,7 +259,7 @@ export function createLogoText({ image, icons = true, size, radius, clippingPlan
   ring.frontZ = radius;
   // Frame fit: count only the inner part of each icon, so the logo keeps its
   // size and the sparse outer tips of the icon streams may reach the screen edges.
-  const fitSpan = icons ? 2 * (logoW / 2 + size * ICON_GAP + iconW * ICON_FIT) : span;
+  const fitSpan = icons && !pictures ? 2 * (logoW / 2 + size * ICON_GAP + iconW * ICON_FIT) : span;
   ring.width = 2 * bendR * Math.sin(Math.min(fitSpan, span) / (2 * bendR));
   return ring;
 }
@@ -376,7 +425,7 @@ function createFlowIcon({ kind, mirror, w, h, clippingPlanes }) {
  * One image sign: artwork face + stacked slices behind it, bent onto the curve.
  * `body` = [front, back] colours for a solid body, or null to darken the artwork itself.
  */
-function addExtrudedSign(ring, { img, crop, w, x, y, depth, body, flat, glow }, { bendR, radius, clippingPlanes }) {
+function addExtrudedSign(ring, { img, crop, w, x, y, depth, body, flat, glow, parent }, { bendR, radius, clippingPlanes }) {
   // textures: the artwork, and its silhouette in white (tinted per slice)
   const W = img.naturalWidth;
   const H = Math.round(img.naturalHeight * crop);
@@ -406,7 +455,9 @@ function addExtrudedSign(ring, { img, crop, w, x, y, depth, body, flat, glow }, 
   const plane = new THREE.PlaneGeometry(w, h, 48, 1);
   plane.translate(0, y, 0);
   const a = x / bendR; // angle of the sign's centre on the curve
+  const target = parent ?? ring.inner;
   const place = (z) => {
+    if (parent) return plane.clone().translate(0, 0, z); // the parent group is already placed on the curve
     if (flat) {
       // flat panel at its spot on the curve, turned only slightly toward the side
       const g = plane.clone().translate(0, 0, z).rotateY(a * ICON_TURN);
@@ -431,7 +482,7 @@ function addExtrudedSign(ring, { img, crop, w, x, y, depth, body, flat, glow }, 
       toneMapped: false,
       clippingPlanes,
     });
-    ring.inner.add(new THREE.Mesh(place(-depth * (0.05 + 0.95 * t)), mat));
+    target.add(new THREE.Mesh(place(-depth * (0.05 + 0.95 * t)), mat));
   }
   // face: the artwork itself (soft glow edges kept via transparency)
   const face = new THREE.Mesh(
@@ -446,7 +497,7 @@ function addExtrudedSign(ring, { img, crop, w, x, y, depth, body, flat, glow }, 
     }),
   );
   face.renderOrder = 1;
-  ring.inner.add(face);
+  target.add(face);
   plane.dispose();
   if (!glow) return null;
 

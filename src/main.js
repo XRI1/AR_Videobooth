@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '5.6'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '5.8'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -59,6 +59,7 @@ async function rebuild() {
   if (!ar) return;
   const [font, brandLogo] = await Promise.all([loadFont(settings.font), loadBrandLogo()]);
   ar.buildContent(settings, font, logo, brandLogo);
+  updateReverseButton();
 }
 
 // Artwork for the 3D "gut SYNBIO" sign (only when used)
@@ -72,8 +73,17 @@ const loadImage = (file) =>
   });
 function loadBrandLogo() {
   if (!settings.ring1.logoText) return Promise.resolve(null);
-  brandLogoPromise ??= loadImage('logo.webp').then((logo) => ({ logo }));
+  brandLogoPromise ??= Promise.all([
+    loadImage('logo.webp'),
+    loadImage('icon-lreuteri.webp').catch(() => null), // left; side icons are optional
+    loadImage('icon-gos.webp').catch(() => null), // right
+  ]).then(([logo, left, right]) => ({ logo, badges: { left, right } }));
   return brandLogoPromise;
+}
+
+/** The reverse button only makes sense with the animated flow icons (kept in place so the record button stays centred). */
+function updateReverseButton() {
+  $('btnReverse').style.visibility = ar?.rings.ring1?.hasFlowIcons ? '' : 'hidden';
 }
 
 // Main-screen button: reverse the 3D side icons' movement (same as the settings switch)
@@ -131,6 +141,7 @@ async function start(file = null) {
       tracker.init(settings.model, settings.mask),
     ]);
     ar.buildContent(settings, font, logo, brandLogo);
+  updateReverseButton();
     ar.contentVisible = settings.show3d;
     setIconsReverse(settings.iconsReverse);
     ar.overlayVisible = settings.overlay;
