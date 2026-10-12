@@ -5,7 +5,7 @@
 //   -> 201 { success, token, viewUrl, downloadUrl, qrCode (PNG data URL), ... }
 
 /** Backend base URL; override with VITE_BACKEND_URL in a .env file. */
-export const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL || 'https://ar-backend-3duv.onrender.com').replace(/\/+$/, '');
+export const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL || 'https://api-videobooth.gutsynbio.space').replace(/\/+$/, '');
 
 const UPLOAD_TIMEOUT_MS = 5 * 60 * 1000; // generous: the free Render tier can take a minute to wake up
 

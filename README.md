@@ -64,7 +64,7 @@ The booth is also packaged as an Android app: a **Trusted Web Activity** that op
 
 Recorded videos are sent to `POST {BACKEND_URL}/api/videos/upload` as `multipart/form-data` (field `video`, max 250 MB). The response includes `qrCode` (a PNG data URL), which the result screen shows, and `viewUrl`, which the QR points to. See [src/uploader.js](src/uploader.js).
 
-The default backend is `https://ar-backend-3duv.onrender.com`. To use a different one, create a `.env` file (or set the variable in Vercel → Project → Settings → Environment Variables) and rebuild:
+The default backend is `https://api-videobooth.gutsynbio.space`. To use a different one, create a `.env` file (or set the variable in Vercel → Project → Settings → Environment Variables) and rebuild:
 
 ```bash
 VITE_BACKEND_URL=https://your-backend.example.com
