@@ -35,8 +35,12 @@ const TURN_RATE = 12; // smoothing of lock / gyro rotations (1/s)
 const _v4 = new THREE.Vector3();
 const SIGN_HIDE_COS = -0.2; // camera more than ~100 deg around: hide the front sign
 const SIGN_SHOW_COS = -0.1; // ...and show it again once back within ~95 deg
-const OVERLAY_WIDTH = 1; // banner spans the full frame width (edge to edge)
-const OVERLAY_MAX_HEIGHT = 0.18; // ...but never taller than this share of the frame height
+const OVERLAY_WIDTH = 1; // wave banner spans the full frame width (edge to edge)
+const OVERLAY_MAX_HEIGHT = 0.32; // ...but never taller than this share of the frame height
+const OVERLAY_HUD_LIFT = 0.42; // buttons rise above this share of the banner's height
+const OVERLAY_LOGO_WIDTH = 0.62; // 2D logo at the top: share of the frame width
+const OVERLAY_LOGO_MAX_HEIGHT = 0.15; // ...and at most this share of the frame height
+const OVERLAY_LOGO_TOP_PX = 92; // gap above the logo in CSS px (clears the top buttons)
 const _overlaySize = new THREE.Vector2();
 const STREAM_FILL = 0.92; // share of the frame half-width the light stream may use
 // closest the stream may come to the body axis (torso units): body + arms half-width
@@ -703,19 +707,25 @@ export class ARScene {
   }
 
   /**
-   * 2D banner image across the top of the frame. `image` is an HTMLImageElement
-   * with a transparent background; it is trimmed to its visible pixels.
+   * 2D overlay drawn on top of everything (so it is also in recordings):
+   * `bottom` = wave banner flush with the bottom edge, `top` = the 2D logo
+   * near the top. Both are HTMLImageElements with transparent backgrounds,
+   * trimmed to their visible pixels. Either may be null.
    */
-  setOverlay(image) {
-    if (this.overlayMesh) {
-      this.overlayMesh.removeFromParent();
-      this.overlayMesh.material.map.dispose();
-      this.overlayMesh.material.dispose();
-      this.overlayMesh.geometry.dispose();
-      this.overlayMesh = null;
+  setOverlay(bottom, top = null) {
+    for (const m of [this.overlayMesh, this.overlayTop]) {
+      if (!m) continue;
+      m.removeFromParent();
+      m.material.map.dispose();
+      m.material.dispose();
+      m.geometry.dispose();
     }
-    if (!image) return;
-    // trim transparent margins so the banner can use the full frame width
+    this.overlayMesh = bottom ? this._overlayMesh(bottom) : null;
+    this.overlayTop = top ? this._overlayMesh(top) : null;
+  }
+
+  _overlayMesh(image) {
+    // trim transparent margins so the image can use the full frame width
     const W = image.naturalWidth;
     const H = image.naturalHeight;
     const full = document.createElement('canvas');
@@ -735,7 +745,7 @@ export class ARScene {
         }
       }
     }
-    if (x1 < x0) return; // fully transparent
+    if (x1 < x0) return null; // fully transparent
     const cv = document.createElement('canvas');
     cv.width = x1 - x0 + 1;
     cv.height = y1 - y0 + 1;
@@ -744,32 +754,52 @@ export class ARScene {
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 4;
     const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
-    this.overlayMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
-    this.overlayMesh.frustumCulled = false;
-    this.overlayMesh.userData.aspect = cv.width / cv.height;
-    this.overlayScene.add(this.overlayMesh);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+    mesh.frustumCulled = false;
+    mesh.userData.aspect = cv.width / cv.height;
+    this.overlayScene.add(mesh);
+    return mesh;
   }
 
-  /** On-screen height of the banner in CSS px (0 when hidden), so the HUD can sit above it. */
+  /** Width share of the frame for an overlay image, limited by a max height share. */
+  _overlayWidth(m, maxW, maxH, frameAspect) {
+    return Math.min(maxW, (maxH * m.userData.aspect) / frameAspect);
+  }
+
+  /** How far (CSS px) the record/capture buttons should move up to clear the wave banner (0 when hidden). */
   overlayHeightCss() {
     const m = this.overlayMesh;
     if (!m || !this.overlayVisible) return 0;
     const el = this.renderer.domElement;
-    const w = Math.min(OVERLAY_WIDTH, (OVERLAY_MAX_HEIGHT * m.userData.aspect * el.clientHeight) / el.clientWidth);
-    return (w * el.clientWidth) / m.userData.aspect;
+    const w = this._overlayWidth(m, OVERLAY_WIDTH, OVERLAY_MAX_HEIGHT, el.clientWidth / el.clientHeight);
+    // the banner's top middle is empty (the waves rise at the sides), so the
+    // buttons only need to clear its lower part
+    return ((w * el.clientWidth) / m.userData.aspect) * OVERLAY_HUD_LIFT;
   }
 
   renderOverlay() {
-    const m = this.overlayMesh;
-    if (!m || !this.overlayVisible) return;
-    // size/position in clip space (-1..1): fixed share of the frame width,
-    // flush with the bottom edge (the record/capture buttons move up above it)
+    if (!this.overlayVisible || (!this.overlayMesh && !this.overlayTop)) return;
+    // sizes/positions in clip space (-1..1)
     const buf = this.renderer.getDrawingBufferSize(_overlaySize);
     const frameAspect = buf.x / buf.y;
-    const w = Math.min(OVERLAY_WIDTH, (OVERLAY_MAX_HEIGHT * m.userData.aspect) / frameAspect); // keep it short on wide screens
-    const h = (w * frameAspect) / m.userData.aspect;
-    m.scale.set(w, h, 1); // plane is 2x2, so scale = half-size * 2 / 2
-    m.position.set(0, -1 + h, 0);
+    const m = this.overlayMesh;
+    if (m) {
+      // full width, flush with the bottom edge
+      const w = this._overlayWidth(m, OVERLAY_WIDTH, OVERLAY_MAX_HEIGHT, frameAspect);
+      const h = (w * frameAspect) / m.userData.aspect;
+      m.scale.set(w, h, 1); // plane is 2x2, so scale = half-size * 2 / 2
+      m.position.set(0, -1 + h, 0);
+    }
+    const t = this.overlayTop;
+    if (t) {
+      // centred near the top, just below the HUD buttons on screen
+      const w = this._overlayWidth(t, OVERLAY_LOGO_WIDTH, OVERLAY_LOGO_MAX_HEIGHT, frameAspect);
+      const h = (w * frameAspect) / t.userData.aspect;
+      const cssH = this.renderer.domElement.clientHeight || buf.y;
+      const topGap = Math.min(0.2, OVERLAY_LOGO_TOP_PX / cssH);
+      t.scale.set(w, h, 1);
+      t.position.set(0, 1 - 2 * topGap - h, 0);
+    }
     this.renderer.render(this.overlayScene, this.quadCam);
   }
 

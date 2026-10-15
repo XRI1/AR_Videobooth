@@ -6,14 +6,14 @@ export const isMobile =
 
 const STORAGE_KEY = 'ar360.settings.v1';
 // Bump when a one-time change must reach saved settings (see loadSettings).
-const SETTINGS_REV = 9;
+const SETTINGS_REV = 10;
 
 export function defaultSettings() {
   return {
     rev: SETTINGS_REV,
     show3d: true, // false hides every 3D element (only the camera image is shown and recorded)
     iconsReverse: false, // 3D side icons: false = objects flow out from the logo, true = flow in toward it
-    overlay: false, // 2D brand banner above the record button (also in the recording); off by default
+    overlay: true, // 2D overlay (wave banner at the bottom + logo at the top), also in the recording
     ring1: {
       enabled: true,
       text: 'GUT GUARDIAN',
@@ -126,6 +126,10 @@ export function loadSettings() {
     }
     if (saved && (saved.rev ?? 1) < 9) {
       s.ring1.height = 0.15; // rev 9: logo group a little higher
+    }
+    if (saved && (saved.rev ?? 1) < 10) {
+      s.overlay = true; // rev 10: the 2D banner + logo and the rising objects show from the start
+      s.fx.stream = true;
     }
     if (saved && saved.rev !== SETTINGS_REV) {
       s.rev = SETTINGS_REV;

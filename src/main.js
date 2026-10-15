@@ -17,7 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '5.8'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '5.9'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -145,12 +145,12 @@ async function start(file = null) {
     ar.contentVisible = settings.show3d;
     setIconsReverse(settings.iconsReverse);
     ar.overlayVisible = settings.overlay;
-    loadImage('overlay.webp')
-      .then((img) => {
-        ar.setOverlay(img);
+    // optional 2D overlay: wave banner at the bottom, logo at the top
+    Promise.all([loadImage('overlay-waves.webp').catch(() => null), loadImage('overlay-logo.webp').catch(() => null)])
+      .then(([waves, logo]) => {
+        ar.setOverlay(waves, logo);
         layoutBanner();
-      })
-      .catch(() => {}); // optional 2D banner
+      });
     if (import.meta.env.DEV) window.__app = { ar, tracker, camera, gyro, recorder, get settings() { return settings; } };
 
     $('intro').classList.add('hidden');
