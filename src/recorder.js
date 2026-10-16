@@ -107,12 +107,29 @@ export class Recorder {
   }
 
   /** Encode the music for a segment that started `segmentStart` (ms) and lasted `durationS`. */
-  _musicFor(segmentStart, durationS) {
-    if (!this._musicOn) return Promise.resolve(null);
-    return this.music.encode(durationS, Math.max(0, (segmentStart - this.startedAt) / 1000)).catch((err) => {
-      console.warn('Background music could not be encoded', err);
+  async _musicFor(segmentStart, durationS) {
+    if (!this.music) return null;
+    if (!this._musicOn) {
+      this.musicStatus = 'no music (song not loaded)';
       return null;
-    });
+    }
+    if (!this.music.encoderConfig) {
+      this.musicStatus = "no music (this phone can't encode audio)";
+      return null;
+    }
+    try {
+      const audio = await this.music.encode(durationS, Math.max(0, (segmentStart - this.startedAt) / 1000));
+      if (!audio) this.musicStatus = 'no music (audio encoder failed)';
+      return audio;
+    } catch (err) {
+      console.warn('Background music could not be encoded', err);
+      this.musicStatus = `no music (${err.message || err})`;
+      return null;
+    }
+  }
+
+  _musicAdded(audio) {
+    this.musicStatus = `music ✓ ${audio.muxCodec === 'aac' ? 'AAC' : audio.muxCodec}`;
   }
 
   get isRecording() {
@@ -148,6 +165,7 @@ export class Recorder {
     if (this._recording) return;
     this.fps = fps;
     this.fallbackReason = '';
+    this.musicStatus = ''; // what happened to the background music in this take (shown after saving)
     this._dropTranscode(); // only the newest take is ever converted
     this._audioSrc = audioTrack;
     this.startedAt = performance.now();
@@ -456,7 +474,15 @@ export class Recorder {
       }
       if (this._withMusic) {
         const music = await this._musicFor(this._segmentStart, (this._stoppedAt - this._segmentStart) / 1000);
-        if (music) addMusicChunks(this.muxer, music);
+        try {
+          if (music) {
+            addMusicChunks(this.muxer, music);
+            this._musicAdded(music);
+          }
+        } catch (err) {
+          console.warn('Could not add the music', err);
+          this.musicStatus = `no music (${err.message || err})`;
+        }
       }
       this.muxer.finalize(); // keeps everything encoded so far, even after an encoder error
       if (this._transcoder) {
@@ -692,9 +718,12 @@ export class Recorder {
     const music = await this._musicFor(segmentStart, durationS);
     if (!music) return mp4Buffer;
     try {
-      return addMusicToMp4(mp4Buffer, music);
+      const out = addMusicToMp4(mp4Buffer, music);
+      this._musicAdded(music);
+      return out;
     } catch (err) {
       console.warn('Could not add the music to the video, keeping it silent', err);
+      this.musicStatus = `no music (${err.message || err})`;
       return mp4Buffer;
     }
   }
@@ -725,6 +754,7 @@ export class Recorder {
     // background music (captured live while it plays) replaces the mic
     const sound = this._musicOn ? this.music.streamTrack() : audioTrack;
     if (sound) stream.addTrack(sound.clone());
+    if (this._musicOn) this.musicStatus = 'music ✓ (live)';
     const opts = { videoBitsPerSecond: 10_000_000, audioBitsPerSecond: AUDIO_BITRATE };
     if (mimeType) opts.mimeType = mimeType;
     let rec;

@@ -425,3 +425,32 @@ function seeded(seed) {
     return (s - 1) / 2147483646;
   };
 }
+
+/**
+ * Frame 2: a ready-made artwork frame (public/brand/frame-2.webp, logo
+ * included). The top (logo) and bottom (light streams) keep their true shape,
+ * scaled to the width; only the plain border in between is stretched to fit
+ * the screen, so the logo never looks squashed.
+ * @returns {{ plaqueTop: number }}  where the buttons should stay above (none needed here)
+ */
+export function drawArtworkFrame(g, W, H, img) {
+  g.clearRect(0, 0, W, H);
+  const iw = img.naturalWidth;
+  const ih = img.naturalHeight;
+  const k = W / iw; // scale by width
+  const topSrc = Math.round(ih * ART_TOP);
+  const botSrc = Math.round(ih * ART_BOTTOM);
+  const topH = topSrc * k;
+  const botH = (ih - botSrc) * k;
+  const midH = H - topH - botH;
+  if (midH <= 0) {
+    g.drawImage(img, 0, 0, W, H); // very wide screen: just fit it
+  } else {
+    g.drawImage(img, 0, 0, iw, topSrc, 0, 0, W, topH);
+    g.drawImage(img, 0, topSrc, iw, botSrc - topSrc, 0, topH, W, midH);
+    g.drawImage(img, 0, botSrc, iw, ih - botSrc, 0, H - botH, W, botH);
+  }
+  return { plaqueTop: H };
+}
+const ART_TOP = 0.31; // frame-2.webp: the logo ends above this share of its height
+const ART_BOTTOM = 0.57; // ...and the bottom artwork starts below this

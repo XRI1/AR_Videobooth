@@ -101,8 +101,10 @@ export class BackgroundMusic {
     let error = null;
     const enc = new AudioEncoder({
       output: (chunk, m) => {
-        const data = new Uint8Array(chunk.byteLength);
+        let data = new Uint8Array(chunk.byteLength);
         chunk.copyTo(data);
+        // some phone encoders wrap AAC in ADTS headers even when asked not to: strip them
+        if (muxCodec === 'aac' && data.length > 7 && data[0] === 0xff && (data[1] & 0xf0) === 0xf0) data = data.subarray(data[1] & 1 ? 7 : 9);
         chunks.push({ data, type: chunk.type, timestamp: chunk.timestamp, duration: chunk.duration ?? 0 });
         if (m?.decoderConfig && !meta) meta = m;
       },
@@ -130,6 +132,12 @@ export class BackgroundMusic {
     await enc.flush();
     enc.close();
     if (error || !chunks.length) return null;
+    // some phone encoders don't report the AAC setup bytes MP4 needs: build them (AAC-LC)
+    if (muxCodec === 'aac' && !meta?.decoderConfig?.description) {
+      const fi = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000].indexOf(SAMPLE_RATE);
+      const asc = new Uint8Array([(2 << 3) | (fi >> 1), ((fi & 1) << 7) | (ch << 3)]);
+      meta = { decoderConfig: { codec: 'mp4a.40.2', sampleRate: SAMPLE_RATE, numberOfChannels: ch, description: asc } };
+    }
     return { chunks, meta, muxCodec, sampleRate: SAMPLE_RATE, numberOfChannels: ch };
   }
 
@@ -146,6 +154,7 @@ async function pickEncoder(numberOfChannels) {
   if (!('AudioEncoder' in window)) return null;
   for (const [codec, muxCodec] of [['mp4a.40.2', 'aac'], ['opus', 'opus']]) {
     const config = { codec, sampleRate: SAMPLE_RATE, numberOfChannels, bitrate: BITRATE };
+    if (muxCodec === 'aac') config.aac = { format: 'aac' }; // raw AAC frames (not ADTS) for MP4
     try {
       if ((await AudioEncoder.isConfigSupported(config)).supported) return { config, muxCodec };
     } catch {

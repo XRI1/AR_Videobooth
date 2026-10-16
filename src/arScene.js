@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createTextRing, createLogoText, createBadgeRing, createGlitter, makeBadgeTexture, faceCamera } from './rings.js';
 import { FireworksFX } from './fireworks.js';
-import { drawBoothFrame } from './frame.js';
+import { drawBoothFrame, drawArtworkFrame } from './frame.js';
 import { LightStream, STREAM_HEIGHT } from './stream.js';
 import { OneEuroFilter, damp, wrapAngle, easeOutBack } from './filters.js';
 
@@ -34,6 +34,7 @@ const LOST_AFTER = 1.2; // seconds without a person before content hides
 const APPEAR_TIME = 0.55; // seconds for the pop-in / shrink-out animation
 const TURN_RATE = 12; // smoothing of lock / gyro rotations (1/s)
 const _v4 = new THREE.Vector3();
+const HAND_LANDMARKS = [15, 16, 19, 20]; // left/right wrist, left/right index finger (MediaPipe pose)
 const SIGN_HIDE_COS = -0.2; // camera more than ~100 deg around: hide the front sign
 const SIGN_SHOW_COS = -0.1; // ...and show it again once back within ~95 deg
 const OVERLAY_LOGO_TOP_PX = 64; // frame: gap above the 2D logo in CSS px (clears the top buttons)
@@ -155,6 +156,7 @@ export class ARScene {
     this.overlayScene = new THREE.Scene();
     this.overlayMesh = null;
     this.overlayVisible = true;
+    this.frameStyle = 'classic'; // 'classic' (drawn frame) | 'artwork' (frame-2.webp)
 
     // Front/back split
     this.clipPlane = new THREE.Plane();
@@ -284,6 +286,18 @@ export class ARScene {
   ndcToWorld(ndc, out) {
     const halfH = DEPTH * Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
     return out.set(ndc.x * halfH * this.camera.aspect, ndc.y * halfH, -DEPTH);
+  }
+
+  /** Wrists and index fingers in the stream's local space (for objects to dodge), when visible. */
+  _handsLocal(pose, outer) {
+    const out = [];
+    if (!pose) return out;
+    for (const i of HAND_LANDMARKS) {
+      if (!pose[i] || pose[i].v < 0.5) continue;
+      const w = this._landmarkWorld(pose, i, new THREE.Vector3());
+      out.push(outer.worldToLocal(w));
+    }
+    return out;
   }
 
   _landmarkWorld(pose, i, out) {
@@ -597,7 +611,7 @@ export class ARScene {
       o.rotation.set(0, 0, a.roll);
       o.scale.setScalar(a.S * appear);
       this.stream.setFade(L.fadeStart, L.fadeEnd);
-      this.stream.update(dt, L.sx, L.sz, this._staticYaw);
+      this.stream.update(dt, L.sx, L.sz, this._staticYaw, inXR ? [] : this._handsLocal(pose, o));
     }
 
     this.scene.updateMatrixWorld();
@@ -707,8 +721,9 @@ export class ARScene {
    * recordings): see drawBoothFrame() in frame.js. `logo` is the 2D logo image.
    * The frame is drawn at the exact output size and redrawn when it changes.
    */
-  setOverlay(logo) {
+  setOverlay(logo, artwork = null) {
     this._frameLogo = logo;
+    this._frameArt = artwork;
     this._frameKey = '';
     if (!this.overlayMesh) {
       this._frameCanvas = document.createElement('canvas');
@@ -727,18 +742,22 @@ export class ARScene {
   _updateFrame() {
     const buf = this.renderer.getDrawingBufferSize(_overlaySize);
     const cssH = this.renderer.domElement.clientHeight || buf.y;
-    const key = `${buf.x}x${buf.y}`;
+    const useArt = this.frameStyle === 'artwork' && this._frameArt;
+    const key = `${buf.x}x${buf.y}:${useArt ? 'art' : 'classic'}`;
     if (key === this._frameKey) return;
     this._frameKey = key;
     const cv = this._frameCanvas;
     cv.width = buf.x;
     cv.height = buf.y;
     const scale = buf.y / cssH; // canvas px per CSS px
-    const { plaqueTop } = drawBoothFrame(cv.getContext('2d'), buf.x, buf.y, {
-      logo: this._frameLogo,
-      logoTop: Math.min(buf.y * 0.2, OVERLAY_LOGO_TOP_PX * scale), // just below the top buttons on screen
-      font: 'Fredoka',
-    });
+    // frame 2 (artwork) has its own logo, so the classic frame and its logo aren't drawn then
+    const { plaqueTop } = useArt
+      ? drawArtworkFrame(cv.getContext('2d'), buf.x, buf.y, this._frameArt)
+      : drawBoothFrame(cv.getContext('2d'), buf.x, buf.y, {
+          logo: this._frameLogo,
+          logoTop: Math.min(buf.y * 0.2, OVERLAY_LOGO_TOP_PX * scale), // just below the top buttons on screen
+          font: 'Fredoka',
+        });
     this._framePlaqueCss = (buf.y - plaqueTop) / scale;
     this.overlayMesh.material.map.needsUpdate = true;
   }

@@ -18,7 +18,7 @@ import { BackgroundMusic } from './music.js';
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '6.2'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '6.3'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -150,8 +150,13 @@ async function start(file = null) {
     setIconsReverse(settings.iconsReverse);
     ar.overlayVisible = settings.overlay;
     // 2D photo-booth frame (logo at the top); waits for the brand font so the tagline uses it
-    Promise.all([loadImage('overlay-logo.webp').catch(() => null), document.fonts.load('700 40px "Fredoka"').catch(() => null)]).then(([logo]) => {
-      ar.setOverlay(logo);
+    ar.frameStyle = settings.frameStyle;
+    Promise.all([
+      loadImage('overlay-logo.webp').catch(() => null),
+      loadImage('frame-2.webp').catch(() => null), // frame 2 (artwork)
+      document.fonts.load('700 40px "Fredoka"').catch(() => null),
+    ]).then(([logo, artwork]) => {
+      ar.setOverlay(logo, artwork);
       layoutBanner();
     });
     if (import.meta.env.DEV) window.__app = { ar, tracker, camera, gyro, recorder, get settings() { return settings; } };
@@ -521,7 +526,7 @@ function showResult(blob, kind) {
   const dl = $('btnDownload');
   dl.href = resultUrl;
   dl.download = name;
-  $('resultInfo').textContent = `${(blob.size / 1048576).toFixed(1)} MB · ${blob.type || ext}`;
+  $('resultInfo').textContent = `${(blob.size / 1048576).toFixed(1)} MB · ${blob.type || ext}${kind === 'video' && recorder.musicStatus ? ` · ${recorder.musicStatus}` : ''}`;
 
   $('result').classList.remove('hidden');
 
@@ -693,6 +698,10 @@ async function onSettingChange(el) {
     return void updateReverseButton();
   }
   if (key === 'iconsReverse') return void setIconsReverse(value);
+  if (key === 'frameStyle') {
+    ar.frameStyle = value;
+    return void layoutBanner();
+  }
   if (key === 'music') {
     if (recorder && !recorder.isRecording) recorder.music = value ? music : null;
     return;

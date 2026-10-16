@@ -104,6 +104,11 @@ export const GLASS_COLORS = { BLUE, CYAN, LIME };
 /* ------------------------------ motion ------------------------------ */
 
 const rand = (a, b) => a + Math.random() * (b - a);
+// Hands push the objects away: within this distance (torso units, around the
+// wrist / fingers), how hard they push, and how fast pushed objects drift back.
+const HAND_RADIUS = 0.55;
+const HAND_PUSH = 14;
+const HAND_RETURN = 1.6;
 /** Rise height from the floor (torso units: hips ~1.8 up, chest ~2.4). */
 export const STREAM_HEIGHT = 3.2;
 const RADIUS_RANGE = [0.9, 1.08]; // spread of distances from the body axis (x radius)
@@ -223,9 +228,10 @@ export class LightStream {
    * @param {number} sz  front/back scale of the circle (matches the text's distance)
    * @param {number} yaw  facing in the room (Lock)
    */
-  update(dt, sx = 1, sz = 1, yaw = 0) {
+  update(dt, sx = 1, sz = 1, yaw = 0, hands = []) {
     this.time += dt;
     const t = this.time;
+    const decay = Math.exp(-HAND_RETURN * dt); // pushed objects drift back to their path
     _qYaw.setFromAxisAngle(_up, yaw);
     const span = this.fadeEnd + 0.02; // objects only travel the visible part
     const sizeK = 0.7 + 0.3 * Math.min(1, sx, sz); // a bit smaller in a narrowed circle
@@ -240,6 +246,21 @@ export class LightStream {
       _p.set(Math.sin(angle) * r, s * STREAM_HEIGHT, Math.cos(angle) * r).applyQuaternion(_qYaw);
       _p.x *= sx;
       _p.z *= sz;
+      // hands push nearby objects away (side-to-side and up/down, as seen by the camera)
+      it.ox = (it.ox ?? 0) * decay;
+      it.oy = (it.oy ?? 0) * decay;
+      for (const h of hands) {
+        const dx = _p.x + it.ox - h.x;
+        const dy = _p.y + it.oy - h.y;
+        const d = Math.hypot(dx, dy);
+        if (d < HAND_RADIUS && d > 1e-4) {
+          const push = (HAND_RADIUS - d) * HAND_PUSH * dt;
+          it.ox += (dx / d) * push;
+          it.oy += (dy / d) * push;
+        }
+      }
+      _p.x += it.ox;
+      _p.y += it.oy;
       // emerge from the floor (grow in), then fade out between hip and chest
       const emerge = THREE.MathUtils.smoothstep(s, 0, 0.06);
       const fadeOut = 1 - THREE.MathUtils.smoothstep(s, this.fadeStart, this.fadeEnd);
