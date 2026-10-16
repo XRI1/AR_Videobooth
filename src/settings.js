@@ -6,12 +6,12 @@ export const isMobile =
 
 const STORAGE_KEY = 'ar360.settings.v1';
 // Bump when a one-time change must reach saved settings (see loadSettings).
-const SETTINGS_REV = 10;
+const SETTINGS_REV = 11;
 
 export function defaultSettings() {
   return {
     rev: SETTINGS_REV,
-    show3d: true, // false hides every 3D element (only the camera image is shown and recorded)
+    show3d: false, // 3D logo, side icons and sparkles: off at start (the 2D frame shows the logo)
     iconsReverse: false, // 3D side icons: false = objects flow out from the logo, true = flow in toward it
     music: true, // background music (public/music/background.mp3) plays and goes into the video
     overlay: true, // 2D overlay (wave banner at the bottom + logo at the top), also in the recording
@@ -131,6 +131,9 @@ export function loadSettings() {
     if (saved && (saved.rev ?? 1) < 10) {
       s.overlay = true; // rev 10: the 2D banner + logo and the rising objects show from the start
       s.fx.stream = true;
+    }
+    if (saved && (saved.rev ?? 1) < 11) {
+      s.show3d = false; // rev 11: 3D logo + icons start switched off
     }
     if (saved && saved.rev !== SETTINGS_REV) {
       s.rev = SETTINGS_REV;

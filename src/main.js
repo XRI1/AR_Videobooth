@@ -18,7 +18,7 @@ import { BackgroundMusic } from './music.js';
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '6.0'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '6.2'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -85,7 +85,7 @@ function loadBrandLogo() {
 
 /** The reverse button only makes sense with the animated flow icons (kept in place so the record button stays centred). */
 function updateReverseButton() {
-  $('btnReverse').style.visibility = ar?.rings.ring1?.hasFlowIcons ? '' : 'hidden';
+  $('btnReverse').style.visibility = settings.show3d && ar?.rings.ring1?.hasFlowIcons ? '' : 'hidden';
 }
 
 // Main-screen button: reverse the 3D side icons' movement (same as the settings switch)
@@ -149,12 +149,11 @@ async function start(file = null) {
     ar.contentVisible = settings.show3d;
     setIconsReverse(settings.iconsReverse);
     ar.overlayVisible = settings.overlay;
-    // optional 2D overlay: wave banner at the bottom, logo at the top
-    Promise.all([loadImage('overlay-waves.webp').catch(() => null), loadImage('overlay-logo.webp').catch(() => null)])
-      .then(([waves, logo]) => {
-        ar.setOverlay(waves, logo);
-        layoutBanner();
-      });
+    // 2D photo-booth frame (logo at the top); waits for the brand font so the tagline uses it
+    Promise.all([loadImage('overlay-logo.webp').catch(() => null), document.fonts.load('700 40px "Fredoka"').catch(() => null)]).then(([logo]) => {
+      ar.setOverlay(logo);
+      layoutBanner();
+    });
     if (import.meta.env.DEV) window.__app = { ar, tracker, camera, gyro, recorder, get settings() { return settings; } };
 
     $('intro').classList.add('hidden');
@@ -689,7 +688,10 @@ async function onSettingChange(el) {
   if (ring && prop === 'speed') return void (ring.speed = value);
   if (ring && prop === 'height') return void (ring.height = value);
   if (key === 'arLock') return void updateArCheck();
-  if (key === 'show3d') return void (ar.contentVisible = value);
+  if (key === 'show3d') {
+    ar.contentVisible = value;
+    return void updateReverseButton();
+  }
   if (key === 'iconsReverse') return void setIconsReverse(value);
   if (key === 'music') {
     if (recorder && !recorder.isRecording) recorder.music = value ? music : null;
