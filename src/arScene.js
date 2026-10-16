@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createTextRing, createLogoText, createBadgeRing, createGlitter, makeBadgeTexture, faceCamera } from './rings.js';
 import { FireworksFX } from './fireworks.js';
-import { drawBoothFrame, drawArtworkFrame } from './frame.js';
+import { drawBoothFrame, drawArtworkFrame, findArtworkBorder } from './frame.js';
 import { LightStream, STREAM_HEIGHT } from './stream.js';
 import { OneEuroFilter, damp, wrapAngle, easeOutBack } from './filters.js';
 
@@ -724,6 +724,7 @@ export class ARScene {
   setOverlay(logo, artwork = null) {
     this._frameLogo = logo;
     this._frameArt = artwork;
+    this._frameArtBox = artwork ? findArtworkBorder(artwork) : null; // where its border lines are
     this._frameKey = '';
     if (!this.overlayMesh) {
       this._frameCanvas = document.createElement('canvas');
@@ -752,7 +753,7 @@ export class ARScene {
     const scale = buf.y / cssH; // canvas px per CSS px
     // frame 2 (artwork) has its own logo, so the classic frame and its logo aren't drawn then
     const { plaqueTop } = useArt
-      ? drawArtworkFrame(cv.getContext('2d'), buf.x, buf.y, this._frameArt)
+      ? drawArtworkFrame(cv.getContext('2d'), buf.x, buf.y, this._frameArt, this._frameArtBox)
       : drawBoothFrame(cv.getContext('2d'), buf.x, buf.y, {
           logo: this._frameLogo,
           logoTop: Math.min(buf.y * 0.2, OVERLAY_LOGO_TOP_PX * scale), // just below the top buttons on screen

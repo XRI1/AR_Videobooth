@@ -428,29 +428,71 @@ function seeded(seed) {
 
 /**
  * Frame 2: a ready-made artwork frame (public/brand/frame-2.webp, logo
- * included). The top (logo) and bottom (light streams) keep their true shape,
- * scaled to the width; only the plain border in between is stretched to fit
- * the screen, so the logo never looks squashed.
+ * included). Its border lines are lined up with the screen edges (the glow
+ * outside them is cut off), the top (logo) and bottom (light streams) keep
+ * their true shape, and only the plain border in between stretches to fit.
+ * `box` = the border's outer edges in the image (from findArtworkBorder).
  * @returns {{ plaqueTop: number }}  where the buttons should stay above (none needed here)
  */
-export function drawArtworkFrame(g, W, H, img) {
+export function drawArtworkFrame(g, W, H, img, box) {
   g.clearRect(0, 0, W, H);
   const iw = img.naturalWidth;
   const ih = img.naturalHeight;
-  const k = W / iw; // scale by width
-  const topSrc = Math.round(ih * ART_TOP);
-  const botSrc = Math.round(ih * ART_BOTTOM);
-  const topH = topSrc * k;
-  const botH = (ih - botSrc) * k;
-  const midH = H - topH - botH;
-  if (midH <= 0) {
-    g.drawImage(img, 0, 0, W, H); // very wide screen: just fit it
+  const b = box ?? { x0: 0, x1: iw - 1, y0: 0, y1: ih - 1 };
+  const k = W / (b.x1 - b.x0 + 1); // border width -> screen width
+  const dx = -b.x0 * k;
+  const dw = iw * k;
+  const T = Math.round(ih * ART_TOP);
+  const B = Math.round(ih * ART_BOTTOM);
+  const topY = -b.y0 * k; // top border on the screen's top edge
+  const botY = H - (b.y1 + 1 - B) * k; // bottom border on the screen's bottom edge
+  const midTop = topY + T * k;
+  if (botY <= midTop) {
+    g.drawImage(img, b.x0, b.y0, b.x1 - b.x0 + 1, b.y1 - b.y0 + 1, 0, 0, W, H); // very wide screen: just fit the border
   } else {
-    g.drawImage(img, 0, 0, iw, topSrc, 0, 0, W, topH);
-    g.drawImage(img, 0, topSrc, iw, botSrc - topSrc, 0, topH, W, midH);
-    g.drawImage(img, 0, botSrc, iw, ih - botSrc, 0, H - botH, W, botH);
+    g.drawImage(img, 0, 0, iw, T, dx, topY, dw, T * k);
+    g.drawImage(img, 0, T, iw, B - T, dx, midTop, dw, botY - midTop);
+    g.drawImage(img, 0, B, iw, ih - B, dx, botY, dw, (ih - B) * k);
   }
   return { plaqueTop: H };
 }
-const ART_TOP = 0.31; // frame-2.webp: the logo ends above this share of its height
-const ART_BOTTOM = 0.57; // ...and the bottom artwork starts below this
+
+/**
+ * Find the outer edges of the frame's border lines in the artwork: the
+ * columns / rows that are solid along most of the plain middle part.
+ */
+export function findArtworkBorder(img) {
+  const W = img.naturalWidth;
+  const H = img.naturalHeight;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, W, H).data;
+  const solid = (x, y) => d[(y * W + x) * 4 + 3] > 180;
+  const share = (n, t) => (t ? n / t : 0);
+  const colSolid = (x) => {
+    let n = 0, t = 0;
+    for (let y = Math.floor(H * ART_TOP); y < H * ART_BOTTOM; y += 2, t++) if (solid(x, y)) n++;
+    return share(n, t) > 0.85;
+  };
+  const rowSolid = (y, x0, x1) => {
+    let n = 0, t = 0;
+    for (let x = Math.floor(x0); x < x1; x += 2, t++) if (solid(x, y)) n++;
+    return share(n, t) > 0.85;
+  };
+  let x0 = 0;
+  while (x0 < W / 3 && !colSolid(x0)) x0++;
+  let x1 = W - 1;
+  while (x1 > (W * 2) / 3 && !colSolid(x1)) x1--;
+  // top/bottom lines: check a stretch of the border away from the corner art
+  let y0 = 0;
+  while (y0 < H / 6 && !rowSolid(y0, W * 0.3, W * 0.45)) y0++;
+  let y1 = H - 1;
+  while (y1 > (H * 5) / 6 && !rowSolid(y1, W * 0.05, W * 0.2)) y1--;
+  const ok = x0 < W / 3 && x1 > (W * 2) / 3 && y0 < H / 6 && y1 > (H * 5) / 6;
+  return ok ? { x0, x1, y0, y1 } : null;
+}
+const ART_TOP = 0.24; // frame-2.webp: the logo and corner art end above this share of its height
+const ART_BOTTOM = 0.59; // ...and the bottom artwork starts below this
