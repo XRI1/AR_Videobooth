@@ -407,6 +407,8 @@ body.with-banner #hud-bottom {
 .frame-pick select { display: block; width: 100%; margin-top: 8px; }
 
 /* full-screen button: shows "enter" or "exit" corners */
-#btnFullscreen .icon-exit { display: none; }
-#btnFullscreen.active .icon-exit { display: block; }
-#btnFullscreen.active .icon-enter { display: none; }
+.js-fullscreen .icon-exit { display: none; }
+.js-fullscreen.active .icon-exit { display: block; }
+.js-fullscreen.active .icon-enter { display: none; }
+/* full-screen button on the start screen, top right */
+.intro-fs { position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); right: 14px; z-index: 2; }

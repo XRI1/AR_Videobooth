@@ -18,7 +18,7 @@ import { BackgroundMusic } from './music.js';
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '6.6'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '6.7'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -94,12 +94,15 @@ function setIconsReverse(value) {
 /* ------------------------------ full screen + home ------------------------------ */
 
 const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+const fsButtons = [...document.querySelectorAll('.js-fullscreen')]; // start screen + top bar
 function updateFullscreenButton() {
   const on = !!fsElement();
-  $('btnFullscreen').classList.toggle('active', on);
-  $('btnFullscreen').setAttribute('aria-pressed', String(on));
+  for (const b of fsButtons) {
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
 }
-$('btnFullscreen').addEventListener('click', async () => {
+async function toggleFullscreen() {
   try {
     if (fsElement()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
     else {
@@ -112,11 +115,12 @@ $('btnFullscreen').addEventListener('click', async () => {
   } catch {
     toast('Full screen is not available in this browser');
   }
-});
+}
+fsButtons.forEach((b) => b.addEventListener('click', toggleFullscreen));
 document.addEventListener('fullscreenchange', updateFullscreenButton);
 document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
 // browsers without full-screen support (e.g. iPhone Safari) don't get the button
-if (!(document.fullscreenEnabled || document.webkitFullscreenEnabled)) $('btnFullscreen').classList.add('hidden');
+if (!(document.fullscreenEnabled || document.webkitFullscreenEnabled)) fsButtons.forEach((b) => b.classList.add('hidden'));
 
 // Home: back to the start screen (a fresh start, so camera / AR / settings all reset cleanly)
 $('btnHome').addEventListener('click', () => {

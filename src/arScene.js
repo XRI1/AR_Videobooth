@@ -760,7 +760,11 @@ export class ARScene {
           font: 'Fredoka',
         });
     this._framePlaqueCss = (buf.y - plaqueTop) / scale;
-    this.overlayMesh.material.map.needsUpdate = true;
+    // the GPU texture has a fixed size once uploaded: free it so it's re-created
+    // at the new size (otherwise the new frame is squeezed into the old one)
+    const tex = this.overlayMesh.material.map;
+    tex.dispose();
+    tex.needsUpdate = true;
   }
 
   /** How far (CSS px) the record/capture buttons should move up to clear the bottom plaque (0 when hidden). */
