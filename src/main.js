@@ -18,7 +18,7 @@ import { BackgroundMusic } from './music.js';
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '6.9'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '7.0'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -169,9 +169,42 @@ document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
 if (!(document.fullscreenEnabled || document.webkitFullscreenEnabled)) fsButtons.forEach((b) => b.classList.add('hidden'));
 
 // Home: back to the start screen (a fresh start, so camera / AR / settings all reset cleanly)
+// Home: back to the start screen WITHOUT reloading the page (a reload always
+// leaves full screen). The camera keeps running in the background, paused, so
+// "Start AR Camera" comes back instantly.
+let paused = false;
 $('btnHome').addEventListener('click', () => {
   if (recorder?.isRecording || countdownTimer) return void toast('Stop recording first');
-  location.reload();
+  if (xrLock?.active) xrLock.end(); // leave AR mode (restores the normal camera)
+  else if (ar?.locked) ar.setLocked(false);
+  $('settings').classList.remove('open');
+  $('result').classList.add('hidden');
+  $('hud-top').classList.add('hidden');
+  $('hud-bottom').classList.add('hidden');
+  $('btnStart').disabled = false;
+  $('introStatus').textContent = '';
+  $('intro').classList.remove('hidden');
+  paused = true;
+});
+
+// "Tap to continue in full screen": shown when the browser drops full screen by
+// itself (e.g. Chrome on Android while it asks for the camera). Browsers only
+// allow full screen from a tap, so this makes that one tap obvious.
+function showFsResume(show) {
+  $('fsResume').classList.toggle('hidden', !show);
+}
+document.addEventListener('fullscreenchange', () => {
+  if (fsElement()) return showFsResume(false);
+  // re-check a moment later: a prompt can flicker full screen off and on
+  setTimeout(() => showFsResume(!fsElement() && wantFullscreen() && fsSupported()), 400);
+});
+$('btnFsResume').addEventListener('click', () => {
+  showFsResume(false);
+  enterFullscreen();
+});
+$('btnFsNo').addEventListener('click', () => {
+  setWantFullscreen(false);
+  showFsResume(false);
 });
 
 /** Lift the record/capture buttons above the 2D banner while it is shown. */
@@ -191,6 +224,15 @@ $('fileSource').addEventListener('change', (e) => e.target.files?.[0] && start(e
 async function start(file = null) {
   const status = $('introStatus');
   const btn = $('btnStart');
+  if (ar) {
+    // already running (came back via Home): show the camera screen again
+    if (file) return void location.reload(); // switching to a video file needs a fresh start
+    $('intro').classList.add('hidden');
+    $('hud-top').classList.remove('hidden');
+    $('hud-bottom').classList.remove('hidden');
+    paused = false;
+    return;
+  }
   if (!file && (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia)) {
     status.textContent = 'Camera needs HTTPS. Open this page via https:// (see README).';
     return;
@@ -256,6 +298,7 @@ let last = performance.now();
 let hudTick = 0;
 function frame(now) {
   requestAnimationFrame(frame);
+  if (paused) return void (last = now); // on the start screen (after Home): nothing to draw
   const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
   last = now;
 
