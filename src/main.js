@@ -14,13 +14,15 @@ import { ARScene } from './arScene.js';
 import { WorldLockXR } from './xrLock.js';
 import { uploadVideo } from './uploader.js';
 import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile } from './settings.js';
+import { BackgroundMusic } from './music.js';
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '5.9'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '6.0'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
+const music = new BackgroundMusic(`${import.meta.env.BASE_URL}music/background.mp3`);
 const camera = new Camera();
 const tracker = new PersonTracker();
 const gyro = new Gyro();
@@ -133,6 +135,8 @@ async function start(file = null) {
     ar.setMirrored(camera.mirrored);
     recorder = new Recorder($('stage'));
     recorder.onFallback = (reason) => toast(`Switched recorder: ${reason}`, 3500);
+    music.load().catch((err) => console.warn('Background music unavailable', err));
+    recorder.music = settings.music ? music : null;
 
     status.textContent = 'Loading 3D text & AI body tracking…';
     const [font, brandLogo] = await Promise.all([
@@ -398,10 +402,44 @@ async function restoreCamera() {
 
 let recBusy = false;
 $('btnRecord').addEventListener('click', () => {
+  if (countdownTimer) return void cancelCountdown();
   if (recBusy) return;
   if (recorder.isRecording) stopRecording();
-  else startRecording();
+  else startCountdown();
 });
+
+/* ------------------------------ countdown ------------------------------ */
+
+const COUNTDOWN_FROM = 5;
+let countdownTimer = null;
+
+/** 5, 4, 3, 2, 1 on screen, then record. Tap record again to cancel. */
+function startCountdown() {
+  if (settings.music) music.unlock(); // sound needs this tap; the song starts with the recording
+  let n = COUNTDOWN_FROM;
+  const box = $('countdown');
+  const show = () => {
+    box.firstElementChild.textContent = n;
+    box.classList.remove('hidden', 'tick');
+    void box.offsetWidth; // restart the pop animation
+    box.classList.add('tick');
+  };
+  show();
+  $('btnRecord').classList.add('counting');
+  countdownTimer = setInterval(() => {
+    n--;
+    if (n > 0) return show();
+    cancelCountdown();
+    startRecording();
+  }, 1000);
+}
+
+function cancelCountdown() {
+  clearInterval(countdownTimer);
+  countdownTimer = null;
+  $('countdown').classList.add('hidden');
+  $('btnRecord').classList.remove('counting');
+}
 
 async function startRecording() {
   recBusy = true;
@@ -417,6 +455,7 @@ async function startRecording() {
     // should be rare now; say why so it can be fixed
     toast(`Recording as WebM (MP4 not available: ${recorder.fallbackReason || 'browser has no MP4 recorder'})`, 6000);
   }
+  if (recorder.music) music.play(); // song starts with the take (and goes into the video)
   // (don't reset the heading while locked: it would snap the text to the front)
   if (gyro.enabled && !ar.locked) gyro.reset();
   $('btnRecord').classList.add('recording');
@@ -427,6 +466,7 @@ async function startRecording() {
 async function stopRecording() {
   if (recBusy) return;
   recBusy = true;
+  music.stop();
   $('btnRecord').classList.remove('recording');
   document.body.classList.remove('is-recording');
   toast('Saving video…', 8000);
@@ -651,6 +691,10 @@ async function onSettingChange(el) {
   if (key === 'arLock') return void updateArCheck();
   if (key === 'show3d') return void (ar.contentVisible = value);
   if (key === 'iconsReverse') return void setIconsReverse(value);
+  if (key === 'music') {
+    if (recorder && !recorder.isRecording) recorder.music = value ? music : null;
+    return;
+  }
   if (key === 'overlay') {
     ar.overlayVisible = value;
     return void layoutBanner();

@@ -13,6 +13,7 @@ export function defaultSettings() {
     rev: SETTINGS_REV,
     show3d: true, // false hides every 3D element (only the camera image is shown and recorded)
     iconsReverse: false, // 3D side icons: false = objects flow out from the logo, true = flow in toward it
+    music: true, // background music (public/music/background.mp3) plays and goes into the video
     overlay: true, // 2D overlay (wave banner at the bottom + logo at the top), also in the recording
     ring1: {
       enabled: true,

@@ -18,6 +18,7 @@
 // so a take is never lost and saving never hangs.
 
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+import { addMusicChunks, addMusicToMp4 } from './music.js';
 
 // MP4 types MediaRecorder may support (Safari; Chrome 126+ incl. Android)
 const MEDIARECORDER_MP4 = [
@@ -97,6 +98,21 @@ export class Recorder {
     this._configCache = new Map(); // pipeline + canvas size -> working encoder config (or null)
     this._broken = new Set(); // pipelines that stalled/failed this session: skipped from now on
     this.onFallback = null; // (reason) => void, called if a take switches recorder mid-way
+    this.music = null; // BackgroundMusic to put into the video (instead of the mic), or null
+  }
+
+  /** Background music for this take, if loaded and encodable. */
+  get _musicOn() {
+    return !!this.music?.ready;
+  }
+
+  /** Encode the music for a segment that started `segmentStart` (ms) and lasted `durationS`. */
+  _musicFor(segmentStart, durationS) {
+    if (!this._musicOn) return Promise.resolve(null);
+    return this.music.encode(durationS, Math.max(0, (segmentStart - this.startedAt) / 1000)).catch((err) => {
+      console.warn('Background music could not be encoded', err);
+      return null;
+    });
   }
 
   get isRecording() {
@@ -177,6 +193,7 @@ export class Recorder {
   async stop() {
     if (!this._recording) return null;
     this._recording = false;
+    this._stoppedAt = performance.now();
     if (this.mode === 'wasm') return this._stopWasm();
     return this.mode === 'webcodecs' ? this._stopWebCodecs() : this._stopMediaRecorder();
   }
@@ -300,7 +317,10 @@ export class Recorder {
   async _startWebCodecs(p, index) {
     const videoConfig = await this._pickVideoConfig(p);
     if (!videoConfig) throw new Error(`the phone's ${p.name} encoder refused every size/profile tried`);
-    const audio = await this._pickAudioConfig(this._audioSrc);
+    // background music replaces the mic; it's encoded from the song when the take stops
+    const musicAudio = this._musicOn ? this.music.muxerAudio : undefined;
+    const audio = musicAudio ? null : await this._pickAudioConfig(this._audioSrc);
+    this._withMusic = !!musicAudio;
     this.width = videoConfig.width;
     this.height = videoConfig.height;
 
@@ -310,7 +330,7 @@ export class Recorder {
       video: { codec: p.muxCodec, width: this.width, height: this.height, frameRate: this.fps },
       audio: audio
         ? { codec: audio.muxCodec, sampleRate: audio.config.sampleRate, numberOfChannels: audio.config.numberOfChannels }
-        : undefined,
+        : musicAudio,
       fastStart: 'in-memory', // moov atom first: plays/streams everywhere
       firstTimestampBehavior: 'offset',
     });
@@ -434,8 +454,15 @@ export class Recorder {
         this._broken.add(this.via); // produced nothing: use the next way next time
         return null;
       }
+      if (this._withMusic) {
+        const music = await this._musicFor(this._segmentStart, (this._stoppedAt - this._segmentStart) / 1000);
+        if (music) addMusicChunks(this.muxer, music);
+      }
       this.muxer.finalize(); // keeps everything encoded so far, even after an encoder error
-      if (this._transcoder) this._transcoder.stopped = true; // ready for convertToH264()
+      if (this._transcoder) {
+        this._transcoder.stopped = true; // ready for convertToH264()
+        this._transcoder.segmentStart = this._segmentStart;
+      }
       return new Blob([this.target.buffer], { type: 'video/mp4' });
     } finally {
       this._cleanupWebCodecs();
@@ -542,7 +569,7 @@ export class Recorder {
       if (t.error || !result?.buffer || !result.frames) throw t.error ?? new Error('the converter produced no video');
       onProgress?.(1);
       this.via = 'VP9 → H.264';
-      return new Blob([result.buffer], { type: 'video/mp4' });
+      return new Blob([await this._withMusicTrack(result.buffer, t.segmentStart, result.frames / (this.fps ?? 30))], { type: 'video/mp4' });
     } finally {
       this._dropTranscode();
     }
@@ -644,7 +671,7 @@ export class Recorder {
         this._broken.add(this.via);
         return null;
       }
-      return new Blob([result.buffer], { type: 'video/mp4' });
+      return new Blob([await this._withMusicTrack(result.buffer, this._segmentStart, result.frames / (this.fps ?? 30))], { type: 'video/mp4' });
     } finally {
       this._wasmDone = null;
       this._cleanupWasm(); // a fresh worker per take keeps memory low
@@ -658,6 +685,18 @@ export class Recorder {
       /* ignore */
     }
     this._wasmWorker = null;
+  }
+
+  /** Silent H.264 MP4 from the software encoder -> same video with the background music (or unchanged). */
+  async _withMusicTrack(mp4Buffer, segmentStart, durationS) {
+    const music = await this._musicFor(segmentStart, durationS);
+    if (!music) return mp4Buffer;
+    try {
+      return addMusicToMp4(mp4Buffer, music);
+    } catch (err) {
+      console.warn('Could not add the music to the video, keeping it silent', err);
+      return mp4Buffer;
+    }
   }
 
   /* ----------------------------- MediaRecorder ----------------------------- */
@@ -683,7 +722,9 @@ export class Recorder {
   _startMediaRecorder(audioTrack, fps, mimeType) {
     if (!window.MediaRecorder) throw new Error('Video recording is not supported in this browser.');
     const stream = this.canvas.captureStream(fps);
-    if (audioTrack) stream.addTrack(audioTrack.clone());
+    // background music (captured live while it plays) replaces the mic
+    const sound = this._musicOn ? this.music.streamTrack() : audioTrack;
+    if (sound) stream.addTrack(sound.clone());
     const opts = { videoBitsPerSecond: 10_000_000, audioBitsPerSecond: AUDIO_BITRATE };
     if (mimeType) opts.mimeType = mimeType;
     let rec;

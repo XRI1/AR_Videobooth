@@ -376,3 +376,24 @@ body.with-banner #hud-bottom {
   padding-bottom: calc(var(--banner-h, 0px) + 10px);
   background: none;
 }
+
+/* 5-4-3-2-1 before recording (on screen only, not in the video) */
+.countdown {
+  position: fixed; inset: 0; z-index: 30;
+  display: grid; place-items: center; pointer-events: none;
+}
+.countdown span {
+  font-family: var(--font-display); font-weight: 700;
+  font-size: min(46vw, 260px); line-height: 1; color: #fff;
+  text-shadow: 0 0 24px rgba(63, 212, 255, 0.95), 0 0 60px rgba(22, 49, 216, 0.85), 0 6px 0 rgba(10, 26, 166, 0.9);
+}
+.countdown.tick span { animation: countdown-pop 0.9s ease-out both; }
+@keyframes countdown-pop {
+  0% { transform: scale(1.6); opacity: 0; }
+  25% { transform: scale(1); opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: scale(0.85); opacity: 0; }
+}
+/* record button while counting down: tap again to cancel */
+.rec-btn.counting { animation: rec-counting 1s ease-in-out infinite; }
+@keyframes rec-counting { 50% { transform: scale(0.92); } }
