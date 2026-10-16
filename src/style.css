@@ -412,3 +412,15 @@ body.with-banner #hud-bottom {
 .js-fullscreen.active .icon-enter { display: none; }
 /* full-screen button on the start screen, top right */
 .intro-fs { position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); right: 14px; z-index: 2; }
+
+/* status pill: only the dot (orange = looking for a person, green = found / locked) */
+.pill.ok, .pill.warn { font-size: 0; padding: 11px; flex: 0 0 auto; }
+.pill.ok::before, .pill.warn::before { width: 14px; height: 14px; margin: 0; vertical-align: middle; }
+/* optional top-bar buttons, switched on in settings */
+body.hide-lock-btn #btnLock,
+body.hide-gyro-btn #btnGyro,
+body.hide-fs-btn #btnFullscreen { display: none !important; }
+fieldset.top-buttons { margin-bottom: 14px; }
+/* status dot sits just below the settings button (centred under it) */
+#hud-top #trackPill { position: absolute; left: 15px; top: calc(62px + var(--safe-top)); }
+#hud-top #trackPill.rec { left: 12px; } /* REC timer pill: same spot, aligned with the button's edge */

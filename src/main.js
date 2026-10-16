@@ -18,7 +18,7 @@ import { BackgroundMusic } from './music.js';
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '6.7'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '6.9'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -91,6 +91,14 @@ function setIconsReverse(value) {
   if (box) box.checked = value;
 }
 
+/** Show / hide the optional top-bar buttons (settings: "Show … button"). */
+function applyButtonSettings() {
+  document.body.classList.toggle('hide-lock-btn', !settings.showLockButton);
+  document.body.classList.toggle('hide-gyro-btn', !settings.showGyroButton);
+  document.body.classList.toggle('hide-fs-btn', !settings.showFullscreenButton);
+}
+applyButtonSettings();
+
 /* ------------------------------ full screen + home ------------------------------ */
 
 const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
@@ -102,10 +110,48 @@ function updateFullscreenButton() {
     b.setAttribute('aria-pressed', String(on));
   }
 }
+// Remember that the operator chose full screen: browsers drop it when the camera
+// permission prompt appears and on every reload (Home), and only allow it again
+// from a tap, so the next tap anywhere puts it back.
+const FS_KEY = 'ar360.fullscreen';
+const wantFullscreen = () => {
+  try {
+    return sessionStorage.getItem(FS_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+const setWantFullscreen = (on) => {
+  try {
+    sessionStorage.setItem(FS_KEY, on ? '1' : '0');
+  } catch {
+    /* storage blocked: full screen just won't come back by itself */
+  }
+};
+const fsSupported = () => !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+function enterFullscreen() {
+  const el = document.documentElement;
+  return Promise.resolve((el.requestFullscreen || el.webkitRequestFullscreen).call(el, { navigationUI: 'hide' }))
+    .then(() => screen.orientation?.lock?.('portrait').catch(() => {})) // keep the booth upright where allowed
+    .catch(() => {});
+}
+// first tap after full screen was lost (camera prompt, Home): restore it
+document.addEventListener(
+  'pointerdown',
+  (e) => {
+    if (!wantFullscreen() || fsElement() || !fsSupported() || e.target.closest?.('.js-fullscreen')) return;
+    enterFullscreen();
+  },
+  true,
+);
+
 async function toggleFullscreen() {
   try {
-    if (fsElement()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    else {
+    if (fsElement()) {
+      setWantFullscreen(false); // the operator turned it off
+      await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else {
+      setWantFullscreen(true);
       const el = document.documentElement;
       // some embedded browsers never answer the request: say so instead of doing nothing
       setTimeout(() => !fsElement() && toast('Full screen is not available here'), 2000);
@@ -195,6 +241,8 @@ async function start(file = null) {
     });
     requestAnimationFrame(frame);
     toast(isMobile ? 'Point at a person, press record and walk around them' : 'Step back so your upper body is visible');
+    // the camera prompt may have dropped full screen: restore it if this tap still counts
+    if (wantFullscreen() && !fsElement() && fsSupported() && navigator.userActivation?.isActive) enterFullscreen();
   } catch (err) {
     console.error(err);
     status.textContent = `Could not start: ${err.message || err}`;
@@ -247,6 +295,13 @@ function takePhotoIfRequested() {
 }
 
 function updateHud() {
+  updatePill();
+  const pill = $('trackPill');
+  pill.title = pill.textContent; // the dot-only pill keeps its words as a tooltip / for screen readers
+  pill.setAttribute('aria-label', pill.textContent);
+}
+
+function updatePill() {
   const pill = $('trackPill');
   if (recorder?.isRecording) {
     const t = recorder.elapsed;
@@ -721,6 +776,7 @@ async function onSettingChange(el) {
     return void (ar.contentVisible = value);
   }
   if (key === 'iconsReverse') return void setIconsReverse(value);
+  if (key === 'showLockButton' || key === 'showGyroButton' || key === 'showFullscreenButton') return void applyButtonSettings();
   if (key === 'frameStyle') {
     ar.frameStyle = value;
     return void layoutBanner();
