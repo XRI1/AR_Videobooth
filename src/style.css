@@ -405,3 +405,8 @@ body.with-banner #hud-bottom {
   font-family: var(--font-display); font-weight: 600; font-size: 15px;
 }
 .frame-pick select { display: block; width: 100%; margin-top: 8px; }
+
+/* full-screen button: shows "enter" or "exit" corners */
+#btnFullscreen .icon-exit { display: none; }
+#btnFullscreen.active .icon-exit { display: block; }
+#btnFullscreen.active .icon-enter { display: none; }

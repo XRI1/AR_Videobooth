@@ -18,7 +18,7 @@ import { BackgroundMusic } from './music.js';
 
 const BASE = import.meta.env.BASE_URL;
 const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '6.5'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '6.6'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -61,7 +61,6 @@ async function rebuild() {
   if (!ar) return;
   const [font, brandLogo] = await Promise.all([loadFont(settings.font), loadBrandLogo()]);
   ar.buildContent(settings, font, logo, brandLogo);
-  updateReverseButton();
 }
 
 // Artwork for the 3D "gut SYNBIO" sign (only when used)
@@ -83,24 +82,46 @@ function loadBrandLogo() {
   return brandLogoPromise;
 }
 
-/** The reverse button only makes sense with the animated flow icons (kept in place so the record button stays centred). */
-function updateReverseButton() {
-  $('btnReverse').style.visibility = settings.show3d && ar?.rings.ring1?.hasFlowIcons ? '' : 'hidden';
-}
-
-// Main-screen button: reverse the 3D side icons' movement (same as the settings switch)
+// Reverse the 3D side icons' movement (settings switch "Reverse icon movement")
 function setIconsReverse(value) {
   settings.iconsReverse = value;
   saveSettings(settings);
   if (ar?.rings.ring1) ar.rings.ring1.flowReverse = value;
   const box = document.querySelector('[data-key="iconsReverse"]');
   if (box) box.checked = value;
-  $('btnReverse').classList.toggle('active', value);
-  $('btnReverse').setAttribute('aria-pressed', String(value));
 }
-$('btnReverse').addEventListener('click', () => {
-  setIconsReverse(!settings.iconsReverse);
-  toast(settings.iconsReverse ? 'Icons flow in toward the logo' : 'Icons flow out from the logo', 1600);
+
+/* ------------------------------ full screen + home ------------------------------ */
+
+const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+function updateFullscreenButton() {
+  const on = !!fsElement();
+  $('btnFullscreen').classList.toggle('active', on);
+  $('btnFullscreen').setAttribute('aria-pressed', String(on));
+}
+$('btnFullscreen').addEventListener('click', async () => {
+  try {
+    if (fsElement()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else {
+      const el = document.documentElement;
+      // some embedded browsers never answer the request: say so instead of doing nothing
+      setTimeout(() => !fsElement() && toast('Full screen is not available here'), 2000);
+      await (el.requestFullscreen || el.webkitRequestFullscreen).call(el, { navigationUI: 'hide' });
+      await screen.orientation?.lock?.('portrait').catch(() => {}); // keep the booth upright where allowed
+    }
+  } catch {
+    toast('Full screen is not available in this browser');
+  }
+});
+document.addEventListener('fullscreenchange', updateFullscreenButton);
+document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+// browsers without full-screen support (e.g. iPhone Safari) don't get the button
+if (!(document.fullscreenEnabled || document.webkitFullscreenEnabled)) $('btnFullscreen').classList.add('hidden');
+
+// Home: back to the start screen (a fresh start, so camera / AR / settings all reset cleanly)
+$('btnHome').addEventListener('click', () => {
+  if (recorder?.isRecording || countdownTimer) return void toast('Stop recording first');
+  location.reload();
 });
 
 /** Lift the record/capture buttons above the 2D banner while it is shown. */
@@ -145,7 +166,6 @@ async function start(file = null) {
       tracker.init(settings.model, settings.mask),
     ]);
     ar.buildContent(settings, font, logo, brandLogo);
-  updateReverseButton();
     ar.contentVisible = settings.show3d;
     setIconsReverse(settings.iconsReverse);
     ar.overlayVisible = settings.overlay;
@@ -694,8 +714,7 @@ async function onSettingChange(el) {
   if (ring && prop === 'height') return void (ring.height = value);
   if (key === 'arLock') return void updateArCheck();
   if (key === 'show3d') {
-    ar.contentVisible = value;
-    return void updateReverseButton();
+    return void (ar.contentVisible = value);
   }
   if (key === 'iconsReverse') return void setIconsReverse(value);
   if (key === 'frameStyle') {
