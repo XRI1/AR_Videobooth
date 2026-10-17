@@ -246,17 +246,21 @@ export class LightStream {
       _p.set(Math.sin(angle) * r, s * STREAM_HEIGHT, Math.cos(angle) * r).applyQuaternion(_qYaw);
       _p.x *= sx;
       _p.z *= sz;
-      // hands push nearby objects away (side-to-side and up/down, as seen by the camera)
+      // hands push nearby objects away, sideways or up only: never down, so with
+      // the arms hanging by the sides the objects slide round the hands and keep
+      // rising instead of getting stuck underneath them
       it.ox = (it.ox ?? 0) * decay;
-      it.oy = (it.oy ?? 0) * decay;
+      it.oy = Math.max(0, (it.oy ?? 0) * decay);
       for (const h of hands) {
         const dx = _p.x + it.ox - h.x;
         const dy = _p.y + it.oy - h.y;
         const d = Math.hypot(dx, dy);
-        if (d < HAND_RADIUS && d > 1e-4) {
+        if (d < HAND_RADIUS) {
           const push = (HAND_RADIUS - d) * HAND_PUSH * dt;
-          it.ox += (dx / d) * push;
-          it.oy += (dy / d) * push;
+          // mostly sideways (away from the hand; outward from the body if right underneath)
+          const side = Math.abs(dx) > 1e-3 ? Math.sign(dx) : Math.sign(_p.x) || 1;
+          it.ox += side * push * (0.6 + 0.4 * Math.abs(dx) / Math.max(d, 1e-3));
+          it.oy += Math.max(0, dy / Math.max(d, 1e-3)) * push * 0.6; // a little lift if above the hand
         }
       }
       _p.x += it.ox;
