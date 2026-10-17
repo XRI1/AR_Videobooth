@@ -43,7 +43,10 @@ const STREAM_FILL = 0.92; // share of the frame half-width the light stream may 
 // closest the stream may come to the body axis (torso units): body + arms half-width
 // (~0.55) + room for the biggest capsule (~0.25), so nothing passes through the body
 const STREAM_BODY_CLEARANCE = 0.58; // body+arms half-width (~0.5) + half the biggest object (torso units)
-const STREAM_CHEST = 0.6; // light stream is gone this far above the hips (torso units)
+// Rising objects: start fading this far above the hips, and are gone at STREAM_CHEST
+// (torso units: shoulders are ~1.0 above the hips, so they never reach the face)
+const STREAM_FADE_FROM = 0.3;
+const STREAM_CHEST = 0.9;
 
 const quadVert = /* glsl */ `
   varying vec2 vUv;
@@ -821,7 +824,7 @@ export class ARScene {
       sx,
       sz,
       floorOffset: -hipUp,
-      fadeStart: hipUp / STREAM_HEIGHT,
+      fadeStart: (hipUp + STREAM_FADE_FROM) / STREAM_HEIGHT,
       fadeEnd: (hipUp + STREAM_CHEST) / STREAM_HEIGHT,
     };
   }
