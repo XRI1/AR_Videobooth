@@ -87,6 +87,10 @@
           <option value="artwork">Frame 2: light-stream artwork frame</option>
         </select>
       </label>
+      <label class="frame-pick">Recording time limit: <b id="maxRecLabel">60 s</b>
+        <input type="range" min="5" max="180" step="5" data-key="maxRecordSeconds" />
+        <small>Recording stops by itself after this time if not stopped earlier</small>
+      </label>
       <label class="check show3d"><input type="checkbox" data-key="music" /> <span>Background music<small>Plays while recording and is saved in the video</small></span></label>
       <label class="check show3d"><input type="checkbox" data-key="iconsReverse" /> <span>Reverse icon movement<small>Capsules &amp; cubes beside the logo flow in toward it instead of out</small></span></label>
       <label class="check show3d"><input type="checkbox" data-key="overlay" /> <span>Show 2D frame<small>Branded frame with logo and tagline, also in the video</small></span></label>

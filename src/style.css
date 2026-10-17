@@ -432,3 +432,5 @@ fieldset.top-buttons { margin-bottom: 14px; }
   background: rgba(5, 13, 99, 0.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
 }
 .fs-resume .link-btn { background: none; border: 0; color: #fff; text-decoration: underline; font-family: var(--font-display); font-size: 15px; }
+.frame-pick input[type='range'] { display: block; width: 100%; margin-top: 8px; }
+.frame-pick small { display: block; font-family: var(--font-ui); font-weight: 400; font-size: 12px; opacity: 0.8; margin-top: 4px; }

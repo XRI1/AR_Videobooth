@@ -17,8 +17,7 @@ import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile
 import { BackgroundMusic } from './music.js';
 
 const BASE = import.meta.env.BASE_URL;
-const MAX_RECORD_SECONDS = 60;
-const APP_VERSION = '7.2'; // shown in settings to confirm the phone has the latest code
+const APP_VERSION = '7.3'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
 let settings = loadSettings();
@@ -90,6 +89,18 @@ function setIconsReverse(value) {
   const box = document.querySelector('[data-key="iconsReverse"]');
   if (box) box.checked = value;
 }
+
+/** Settings label next to the recording time-limit slider. */
+function updateMaxRecLabel() {
+  const v = settings.maxRecordSeconds || 60;
+  $('maxRecLabel').textContent = v >= 60 ? `${Math.floor(v / 60)} min${v % 60 ? ` ${v % 60} s` : ''}` : `${v} s`;
+}
+updateMaxRecLabel();
+// update the label while dragging, not only on release
+document.querySelector('[data-key="maxRecordSeconds"]').addEventListener('input', (e) => {
+  settings.maxRecordSeconds = parseFloat(e.target.value);
+  updateMaxRecLabel();
+});
 
 /** Show / hide the optional top-bar buttons (settings: "Show … button"). */
 function applyButtonSettings() {
@@ -351,7 +362,7 @@ function updatePill() {
     pill.className = 'pill rec';
     pill.textContent = `● REC ${fmtTime(t)}`;
     $('recTime').textContent = fmtTime(t);
-    if (t >= MAX_RECORD_SECONDS) stopRecording();
+    if (t >= (settings.maxRecordSeconds || 60)) stopRecording(); // auto-stop at the time limit (settings)
     return;
   }
   if (ar.xr) {
@@ -567,10 +578,13 @@ function cancelCountdown() {
   $('btnRecord').classList.remove('counting');
 }
 
+let recLimitTimer = null; // stops the take at the time limit even if the screen isn't redrawing
 async function startRecording() {
   recBusy = true;
   try {
     await recorder.start(settings.mic ? camera.audioTrack : null);
+    clearTimeout(recLimitTimer);
+    recLimitTimer = setTimeout(() => recorder?.isRecording && stopRecording(), (settings.maxRecordSeconds || 60) * 1000);
   } catch (err) {
     toast(err.message);
     return;
@@ -591,6 +605,7 @@ async function startRecording() {
 
 async function stopRecording() {
   if (recBusy) return;
+  clearTimeout(recLimitTimer);
   recBusy = true;
   music.stop();
   $('btnRecord').classList.remove('recording');
@@ -819,6 +834,7 @@ async function onSettingChange(el) {
     return void (ar.contentVisible = value);
   }
   if (key === 'iconsReverse') return void setIconsReverse(value);
+  if (key === 'maxRecordSeconds') return void updateMaxRecLabel();
   if (key === 'showLockButton' || key === 'showGyroButton' || key === 'showFullscreenButton') return void applyButtonSettings();
   if (key === 'frameStyle') {
     ar.frameStyle = value;

@@ -34,6 +34,7 @@ const LOST_AFTER = 1.2; // seconds without a person before content hides
 const APPEAR_TIME = 0.55; // seconds for the pop-in / shrink-out animation
 const TURN_RATE = 12; // smoothing of lock / gyro rotations (1/s)
 const _v4 = new THREE.Vector3();
+const HAND_SMOOTH = 12; // hand point smoothing (per second): higher follows faster, lower is calmer
 const HAND_LANDMARKS = [15, 16, 19, 20]; // left/right wrist, left/right index finger (MediaPipe pose)
 const SIGN_HIDE_COS = -0.2; // camera more than ~100 deg around: hide the front sign
 const SIGN_SHOW_COS = -0.1; // ...and show it again once back within ~95 deg
@@ -292,13 +293,28 @@ export class ARScene {
   }
 
   /** Wrists and index fingers in the stream's local space (for objects to dodge), when visible. */
-  _handsLocal(pose, outer) {
+  _handsLocal(pose, outer, dt = 1 / 30) {
+    // Body tracking jitters a little from frame to frame: smooth each hand point
+    // so the objects it moves glide instead of twitching.
+    this._hands ??= new Map();
     const out = [];
-    if (!pose) return out;
+    const a = 1 - Math.exp(-HAND_SMOOTH * dt);
     for (const i of HAND_LANDMARKS) {
-      if (!pose[i] || pose[i].v < 0.5) continue;
-      const w = this._landmarkWorld(pose, i, new THREE.Vector3());
-      out.push(outer.worldToLocal(w));
+      const seen = pose?.[i] && pose[i].v >= 0.5;
+      let h = this._hands.get(i);
+      if (!seen) {
+        if (h) h.miss += dt;
+        if (!h || h.miss > 0.3) {
+          this._hands.delete(i); // gone for a moment: forget it
+          continue;
+        }
+      } else {
+        const w = outer.worldToLocal(this._landmarkWorld(pose, i, new THREE.Vector3()));
+        if (!h) this._hands.set(i, (h = { p: w, miss: 0 }));
+        else h.p.lerp(w, a);
+        h.miss = 0;
+      }
+      out.push(h.p);
     }
     return out;
   }
@@ -614,7 +630,7 @@ export class ARScene {
       o.rotation.set(0, 0, a.roll);
       o.scale.setScalar(a.S * appear);
       this.stream.setFade(L.fadeStart, L.fadeEnd);
-      this.stream.update(dt, L.sx, L.sz, this._staticYaw, inXR ? [] : this._handsLocal(pose, o));
+      this.stream.update(dt, L.sx, L.sz, this._staticYaw, inXR ? [] : this._handsLocal(pose, o, dt));
     }
 
     this.scene.updateMatrixWorld();

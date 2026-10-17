@@ -107,8 +107,8 @@ const rand = (a, b) => a + Math.random() * (b - a);
 // Hands push the objects away: within this distance (torso units, around the
 // wrist / fingers), how hard they push, and how fast pushed objects drift back.
 const HAND_RADIUS = 0.55;
-const HAND_PUSH = 14;
-const HAND_RETURN = 1.6;
+const HAND_PUSH = 4; // how quickly an object glides aside (per second)
+const HAND_RETURN = 1.8; // how quickly it glides back to its path
 /** Rise height from the floor (torso units: hips ~1.8 up, chest ~2.4). */
 export const STREAM_HEIGHT = 3.2;
 const RADIUS_RANGE = [0.9, 1.08]; // spread of distances from the body axis (x radius)
@@ -239,6 +239,12 @@ export class LightStream {
     for (const it of this.items) {
       const progress = it.s0 + t * it.speed;
       const rise = Math.floor(progress); // which rise this is (new spot each time)
+      if (it.rise !== rise) {
+        // starting a new rise at a new spot: forget any hand offset from the last one
+        it.rise = rise;
+        it.ox = it.oy = 0;
+        it.side = undefined;
+      }
       const s = (progress - rise) * span;
       // spot around the person for this rise: angle + distance from the body axis
       const angle = hash01(it.seed + rise * 1.37) * TAU;
@@ -246,23 +252,28 @@ export class LightStream {
       _p.set(Math.sin(angle) * r, s * STREAM_HEIGHT, Math.cos(angle) * r).applyQuaternion(_qYaw);
       _p.x *= sx;
       _p.z *= sz;
-      // hands push nearby objects away, sideways or up only: never down, so with
-      // the arms hanging by the sides the objects slide round the hands and keep
-      // rising instead of getting stuck underneath them
-      it.ox = (it.ox ?? 0) * decay;
-      it.oy = Math.max(0, (it.oy ?? 0) * decay);
+      // Hands move nearby objects aside, sideways or up only (never down, so with
+      // the arms hanging down they slide round the hands and keep rising). Each
+      // object glides toward a "make room" offset and back (no jumps), and keeps
+      // the side it chose until the hand has gone, so it never flips back and forth.
+      let tx = 0;
+      let ty = 0;
+      let near = false;
       for (const h of hands) {
-        const dx = _p.x + it.ox - h.x;
-        const dy = _p.y + it.oy - h.y;
+        const dx = _p.x + (it.ox ?? 0) - h.x;
+        const dy = _p.y + (it.oy ?? 0) - h.y;
         const d = Math.hypot(dx, dy);
-        if (d < HAND_RADIUS) {
-          const push = (HAND_RADIUS - d) * HAND_PUSH * dt;
-          // mostly sideways (away from the hand; outward from the body if right underneath)
-          const side = Math.abs(dx) > 1e-3 ? Math.sign(dx) : Math.sign(_p.x) || 1;
-          it.ox += side * push * (0.6 + 0.4 * Math.abs(dx) / Math.max(d, 1e-3));
-          it.oy += Math.max(0, dy / Math.max(d, 1e-3)) * push * 0.6; // a little lift if above the hand
-        }
+        if (d >= HAND_RADIUS) continue;
+        near = true;
+        it.side ??= Math.abs(dx) > 0.02 ? Math.sign(dx) : Math.sign(_p.x) || 1;
+        const room = HAND_RADIUS - d; // how far inside the hand's reach it is
+        tx += it.side * room;
+        ty += Math.max(0, dy / Math.max(d, 1e-3)) * room * 0.5; // a little lift if above the hand
       }
+      if (!near) it.side = undefined;
+      const ease = near ? 1 - Math.exp(-HAND_PUSH * dt) : 1 - decay; // quick to make room, gentle return
+      it.ox = (it.ox ?? 0) + (tx - (it.ox ?? 0)) * ease;
+      it.oy = Math.max(0, (it.oy ?? 0) + (ty - (it.oy ?? 0)) * ease);
       _p.x += it.ox;
       _p.y += it.oy;
       // emerge from the floor (grow in), then fade out between hip and chest
