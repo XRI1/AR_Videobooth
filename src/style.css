@@ -287,7 +287,11 @@ fieldset .btn-ghost { margin-top: 10px; font-size: 13px; padding: 8px 14px; }
 .result-card {
   width: min(460px, 100%); max-height: 100%;
   display: flex; flex-direction: column; align-items: center; gap: 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
 }
+.result-card::-webkit-scrollbar { display: none; }
 .result-card .result-logo {
   width: min(52%, 220px); max-height: none; border-radius: 0; background: none;
   filter: drop-shadow(0 4px 16px rgba(63, 212, 255, 0.45));
@@ -311,7 +315,10 @@ fieldset .btn-ghost { margin-top: 10px; font-size: 13px; padding: 8px 14px; }
 .footer-spacer { visibility: hidden; pointer-events: none; }
 
 /* video + upload/QR side by side */
-.result-body { width: 100%; display: flex; align-items: center; justify-content: center; gap: 14px; }
+.result-body {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 14px;
+  flex: 0 0 auto;
+}
 .result-body video { min-width: 0; flex: 0 1 auto; }
 .result-body.with-upload video { max-width: 52%; }
 .upload-panel {
@@ -342,11 +349,22 @@ fieldset .btn-ghost { margin-top: 10px; font-size: 13px; padding: 8px 14px; }
   color: #fff; text-shadow: 0 0 10px rgba(63, 212, 255, 0.7);
 }
 
-/* narrow screens: stack the QR under the video */
-@media (max-width: 340px) {
+/* Narrow portrait screens: stack the QR under the video. */
+@media (max-width: 600px) and (orientation: portrait) {
   .result-body { flex-direction: column; }
   .result-body.with-upload video { max-width: 100%; max-height: 40dvh; }
   .upload-panel { width: min(70vw, 220px); }
+}
+
+/* Phones held sideways have little height but plenty of width. Give the media
+   row that width and keep the session text in the next row instead of letting
+   the flex layout collapse it over (and visually squeeze) the video. */
+@media (orientation: landscape) and (max-height: 600px) {
+  #result { place-items: start center; padding-block: 10px; overflow-y: auto; }
+  .result-card { width: min(760px, 100%); max-height: none; padding-bottom: 10px; }
+  .result-card .result-logo { width: min(30%, 180px); }
+  .result-body.with-upload video { max-width: calc(100% - min(42vw, 230px) - 14px); }
+  #result .result-session-pill { flex: 0 0 auto; margin: 2px auto 0; }
 }
 #resultInfo { color: #d6e6ff; }
 
