@@ -434,3 +434,160 @@ fieldset.top-buttons { margin-bottom: 14px; }
 .fs-resume .link-btn { background: none; border: 0; color: #fff; text-decoration: underline; font-family: var(--font-display); font-size: 15px; }
 .frame-pick input[type='range'] { display: block; width: 100%; margin-top: 8px; }
 .frame-pick small { display: block; font-family: var(--font-ui); font-weight: 400; font-size: 12px; opacity: 0.8; margin-top: 4px; }
+
+
+/* ---------- Booth Session Setup (Event, Location, Note) ---------- */
+.booth-session-setup {
+  width: 100%;
+  max-width: 380px;
+  margin: 12px auto 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(6, 18, 120, 0.45);
+  border: 1.5px solid var(--cyan-soft);
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: 0 4px 20px rgba(3, 8, 67, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  text-align: left;
+}
+
+.session-fields-row {
+  display: flex;
+  gap: 10px;
+}
+
+.session-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.session-label {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cyan);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.booth-input, .booth-select {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--cyan-soft);
+  background: rgba(3, 8, 67, 0.65);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+
+.booth-input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.booth-input:focus, .booth-select:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 12px rgba(63, 212, 255, 0.35);
+}
+
+.booth-select {
+  cursor: pointer;
+}
+
+.booth-select option {
+  background: var(--navy);
+  color: #fff;
+}
+
+.session-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(182, 240, 30, 0.15);
+  border: 1px solid rgba(182, 240, 30, 0.4);
+  color: var(--lime);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  align-self: flex-start;
+}
+
+.session-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 6px var(--lime);
+}
+
+/* HUD location pill */
+.hud-location-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--glass);
+  box-shadow: var(--glow);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.hud-event-chip {
+  background: rgba(63, 212, 255, 0.2);
+  color: var(--cyan);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Settings drawer session fieldset */
+.booth-session-fieldset {
+  margin-bottom: 12px;
+}
+
+.booth-session-fieldset input,
+.booth-session-fieldset select {
+  width: 100%;
+  margin-top: 4px;
+}
+
+/* Result modal session badge */
+.result-session-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(6, 18, 120, 0.7);
+  border: 1px solid var(--cyan-soft);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.result-note-wrap {
+  width: 100%;
+  max-width: 360px;
+  margin-bottom: 8px;
+}

@@ -1,4 +1,3 @@
-// Brand fonts (self-hosted, so they also work offline at the venue)
 import '@fontsource/fredoka/500.css';
 import '@fontsource/fredoka/600.css';
 import '@fontsource/fredoka/700.css';
@@ -12,13 +11,181 @@ import { Gyro } from './gyro.js';
 import { Recorder } from './recorder.js';
 import { ARScene } from './arScene.js';
 import { WorldLockXR } from './xrLock.js';
-import { uploadVideo } from './uploader.js';
+import { uploadVideo, BACKEND_URL } from './uploader.js';
 import { loadSettings, saveSettings, defaultSettings, getPath, setPath, isMobile } from './settings.js';
 import { BackgroundMusic } from './music.js';
+
+
+
+
+
+
+
+// Brand fonts (self-hosted, so they also work offline at the venue)
+
 
 const BASE = import.meta.env.BASE_URL;
 const APP_VERSION = '7.3'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
+
+/* ------------------------------ booth session (Event, Location, Note) ------------------------------ */
+// Ephemeral in-memory state: resets upon browser refresh as required
+let sessionLocation = '';
+let sessionEvent = '';
+let sessionNote = '';
+let backendLocationsList = [];
+
+function updateSessionDisplays() {
+  const loc = sessionLocation.trim();
+  const evt = sessionEvent.trim();
+
+  // 1. Intro Start Screen live badge
+  const introBadge = $('introLiveLocationBadge');
+  const introText = $('introLiveLocationText');
+  if (introBadge && introText) {
+    if (loc || evt) {
+      introText.textContent = [loc ? ('📍 ' + loc) : '', evt].filter(Boolean).join(' • ');
+      introBadge.classList.remove('hidden');
+    } else {
+      introBadge.classList.add('hidden');
+    }
+  }
+
+  // 2. HUD Location badge (shown in header during live camera / recording)
+  const hudBadge = $('hudLocationBadge');
+  const hudLoc = $('hudLocationDisplay');
+  const hudEvt = $('hudEventDisplay');
+  if (hudBadge && hudLoc && hudEvt) {
+    if (loc || evt) {
+      hudLoc.textContent = loc || 'Location';
+      if (evt) {
+        hudEvt.textContent = evt;
+        hudEvt.classList.remove('hidden');
+      } else {
+        hudEvt.classList.add('hidden');
+      }
+      hudBadge.classList.remove('hidden');
+    } else {
+      hudBadge.classList.add('hidden');
+    }
+  }
+
+  // 3. Result Modal session tag
+  const resBadge = $('resultSessionTag');
+  const resLoc = $('resultLocDisplay');
+  const resEvt = $('resultEventDisplay');
+  if (resBadge && resLoc && resEvt) {
+    if (loc || evt) {
+      resLoc.textContent = loc ? ('📍 ' + loc) : '';
+      resEvt.textContent = evt ? ('(' + evt + ')') : '';
+      resBadge.classList.remove('hidden');
+    } else {
+      resBadge.classList.add('hidden');
+    }
+  }
+
+  // Sync location selects
+  const introSel = $('introLocationSelect');
+  const setSel = $('settingsLocationSelect');
+  if (introSel && introSel.value !== sessionLocation) introSel.value = sessionLocation;
+  if (setSel && setSel.value !== sessionLocation) setSel.value = sessionLocation;
+
+  // Sync event selects
+  const introEvt = $('introEventSelect');
+  const settingsEvt = $('settingsEventSelect');
+  if (introEvt && introEvt.value !== sessionEvent) introEvt.value = sessionEvent;
+  if (settingsEvt && settingsEvt.value !== sessionEvent) settingsEvt.value = sessionEvent;
+
+  // Sync note inputs
+  const introNote = $('introNoteInput');
+  const settingsNote = $('settingsNoteInput');
+  const resultNote = $('resultNoteInput');
+  if (introNote && introNote.value !== sessionNote) introNote.value = sessionNote;
+  if (settingsNote && settingsNote.value !== sessionNote) settingsNote.value = sessionNote;
+  if (resultNote && resultNote.value !== sessionNote) resultNote.value = sessionNote;
+}
+
+function populateLocationDropdowns(locations) {
+  backendLocationsList = locations || [];
+  const introSel = $('introLocationSelect');
+  const setSel = $('settingsLocationSelect');
+
+  [introSel, setSel].forEach(sel => {
+    if (!sel) return;
+    const currentVal = sel.value;
+    sel.innerHTML = '<option value="">Select Location</option>' +
+      backendLocationsList.map(l => '<option value="' + l.name + '">' + l.name + '</option>').join('');
+    sel.value = currentVal;
+  });
+
+  if (introSel && introSel.value !== sessionLocation) introSel.value = sessionLocation;
+  if (setSel && setSel.value !== sessionLocation) setSel.value = sessionLocation;
+}
+
+async function fetchBackendLocations() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/locations`);
+    if (res.ok) {
+      const list = await res.json();
+      populateLocationDropdowns(list);
+    }
+  } catch (err) {
+    console.warn('Could not fetch backend locations', err);
+  }
+}
+
+function initBoothSession() {
+  const introSel = $('introLocationSelect');
+  const introEvt = $('introEventSelect');
+  const introNote = $('introNoteInput');
+
+  const setSel = $('settingsLocationSelect');
+  const setEvt = $('settingsEventSelect');
+  const setNote = $('settingsNoteInput');
+
+  const resultNote = $('resultNoteInput');
+
+  // Populate 100 events into the event dropdowns
+  [introEvt, setEvt].forEach((sel) => {
+    if (sel && sel.options.length <= 1) {
+      for (let i = 1; i <= 100; i++) {
+        const opt = document.createElement('option');
+        opt.value = 'Event ' + i;
+        opt.textContent = 'Event ' + i;
+        sel.appendChild(opt);
+      }
+    }
+  });
+
+  // Location dropdown selection
+  [introSel, setSel].forEach((sel) => {
+    sel?.addEventListener('change', (e) => {
+      sessionLocation = e.target.value;
+      updateSessionDisplays();
+    });
+  });
+
+  // Event dropdown selection
+  [introEvt, setEvt].forEach((select) => {
+    select?.addEventListener('change', (e) => {
+      sessionEvent = e.target.value;
+      updateSessionDisplays();
+    });
+  });
+
+  // Note inputs
+  [introNote, setNote, resultNote].forEach((noteInput) => {
+    noteInput?.addEventListener('input', (e) => {
+      sessionNote = e.target.value;
+      updateSessionDisplays();
+    });
+  });
+
+  updateSessionDisplays();
+  fetchBackendLocations();
+}
+
+
 
 let settings = loadSettings();
 const music = new BackgroundMusic(`${import.meta.env.BASE_URL}music/background.mp3`);
@@ -712,6 +879,9 @@ async function startUpload(blob, name) {
   }, 8000);
   try {
     const res = await uploadVideo(blob, name, {
+      location: sessionLocation,
+      event: sessionEvent,
+      note: sessionNote,
       signal: controller.signal,
       onProgress: (f) => {
         sent = f;
@@ -906,3 +1076,6 @@ $('btnReset').addEventListener('click', () => {
   scheduleRebuild();
   toast('Settings reset');
 });
+
+// Initialize in-memory booth session
+initBoothSession();

@@ -23,6 +23,31 @@
       <img class="brand-logo" src="./brand/logo.webp" alt="Gut Synbio — Activating growth through synbiotic science" />
       <h1 class="intro-title">AR 360° Video Booth</h1>
       <p class="intro-sub">Step into the frame, lock the scene and record your synbiotic moment.</p>
+            <!-- Booth Session Setup: Location, Event, Note -->
+      <div class="booth-session-setup" id="introSessionSetup">
+        <div class="session-fields-row">
+          <div class="session-field">
+            <label for="introLocationSelect" class="session-label">Location</label>
+            <select id="introLocationSelect" class="booth-select">
+              <option value="">Select Location</option>
+            </select>
+          </div>
+          <div class="session-field">
+            <label for="introEventSelect" class="session-label">Event</label>
+            <select id="introEventSelect" class="booth-select">
+              <option value="">Select Event (1 - 100)</option>
+            </select>
+          </div>
+        </div>
+        <div class="session-field">
+          <label for="introNoteInput" class="session-label">Note (optional)</label>
+          <input type="text" id="introNoteInput" class="booth-input" placeholder="Session note..." autocomplete="off" />
+        </div>
+        <div id="introLiveLocationBadge" class="session-live-badge hidden">
+          <span class="session-live-dot"></span>
+          <span id="introLiveLocationText"></span>
+        </div>
+      </div>
       <button id="btnStart" class="btn-primary btn-start">Start AR Camera</button>
       <p><label class="link-btn">or use a video file<input id="fileSource" type="file" accept="video/*" hidden /></label></p>
       <p id="introStatus" class="muted"></p>
@@ -34,7 +59,12 @@
     <button id="btnSettings" class="icon-btn" title="Settings" aria-label="Settings">
       <svg viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Zm7.43-2.53a7.8 7.8 0 0 0 0-1.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.3 7.3 0 0 0-1.68-.97l-.36-2.54A.5.5 0 0 0 14.05 2h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.6.24-1.17.57-1.68.97l-2.39-.96a.5.5 0 0 0-.61.22L2.76 8.51a.5.5 0 0 0 .12.64l2.03 1.58a7.8 7.8 0 0 0 0 1.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.3.61.22l2.39-.96c.51.4 1.08.73 1.68.97l.36 2.54c.04.24.25.42.49.42h3.84c.24 0 .45-.18.49-.42l.36-2.54c.6-.24 1.17-.57 1.68-.97l2.39.96c.22.08.48 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58Z"/></svg>
     </button>
-    <div id="trackPill" class="pill">Loading…</div>
+        <div id="trackPill" class="pill">Loading…</div>
+    <div id="hudLocationBadge" class="pill hud-location-badge hidden">
+      <span class="hud-loc-pin">📍</span>
+      <span id="hudLocationDisplay"></span>
+      <span id="hudEventDisplay" class="hud-event-chip hidden"></span>
+    </div>
     <div class="hud-right">
       <button id="btnFullscreen" class="icon-btn js-fullscreen" title="Full screen" aria-label="Full screen" aria-pressed="false">
         <svg class="icon-enter" viewBox="0 0 24 24"><path d="M4 9V4h5v2H6v3Zm11-5h5v5h-2V6h-3ZM6 15v3h3v2H4v-5Zm12 0h2v5h-5v-2h3Z"/></svg>
@@ -72,7 +102,22 @@
       <h2>Scene settings</h2>
       <button id="btnCloseSettings" class="icon-btn" aria-label="Close settings">✕</button>
     </div>
-    <div class="drawer-body">
+        <div class="drawer-body">
+      <fieldset class="booth-session-fieldset">
+        <legend>Event &amp; Location Session</legend>
+        <label>Location
+          <select id="settingsLocationSelect">
+            <option value="">Select Location</option>
+          </select>
+        </label>
+        <label>Event
+          <select id="settingsEventSelect">
+            <option value="">Select Event (1 - 100)</option>
+          </select>
+        </label>
+        <label>Note <input type="text" id="settingsNoteInput" placeholder="Session note..." autocomplete="off" /></label>
+        <small class="muted" style="display: block; margin-top: 4px;">Resets upon browser refresh</small>
+      </fieldset>
       <label class="check show3d"><input type="checkbox" data-key="show3d" /> <span>Show 3D elements<small>Logo, icons &amp; sparkles (rising objects have their own switch)</small></span></label>
       <label class="check show3d"><input type="checkbox" data-key="fx.stream" /> <span>Show rising 3D objects<small>Capsules, cubes &amp; bubbles rising from the floor</small></span></label>
       <fieldset class="top-buttons">
@@ -205,6 +250,13 @@
       <div class="result-body">
         <video id="resultVideo" playsinline controls loop></video>
         <img id="resultImage" alt="Captured photo" class="hidden" />
+                <div id="resultSessionTag" class="result-session-pill hidden">
+          <span id="resultLocDisplay"></span>
+          <span id="resultEventDisplay"></span>
+        </div>
+        <div id="resultNoteWrap" class="result-note-wrap hidden">
+          <input type="text" id="resultNoteInput" class="booth-input" placeholder="Note (optional)..." autocomplete="off" />
+        </div>
         <!-- after Submit: upload progress, then a QR code the guest scans to download the video -->
         <div id="uploadPanel" class="upload-panel hidden" aria-live="polite">
           <div id="uploadProgress" class="upload-progress">
