@@ -28,42 +28,35 @@ const BASE = import.meta.env.BASE_URL;
 const APP_VERSION = '7.3'; // shown in settings to confirm the phone has the latest code
 const $ = (id) => document.getElementById(id);
 
-/* ------------------------------ booth session (Event, Location, Note) ------------------------------ */
+/* ------------------------------ booth event session ------------------------------ */
 // Ephemeral in-memory state: resets upon browser refresh as required
-let sessionLocation = '';
+let sessionEventId = '';
 let sessionEvent = '';
-let sessionNote = '';
-let backendLocationsList = [];
+let backendEventsList = [];
 
 function updateSessionDisplays() {
-  const loc = sessionLocation.trim();
   const evt = sessionEvent.trim();
 
   // 1. Intro Start Screen live badge
   const introBadge = $('introLiveLocationBadge');
   const introText = $('introLiveLocationText');
   if (introBadge && introText) {
-    if (loc || evt) {
-      introText.textContent = [loc ? ('📍 ' + loc) : '', evt].filter(Boolean).join(' • ');
+    if (evt) {
+      introText.textContent = evt;
       introBadge.classList.remove('hidden');
     } else {
       introBadge.classList.add('hidden');
     }
   }
 
-  // 2. HUD Location badge (shown in header during live camera / recording)
+  // 2. HUD event badge (shown in header during live camera / recording)
   const hudBadge = $('hudLocationBadge');
   const hudLoc = $('hudLocationDisplay');
   const hudEvt = $('hudEventDisplay');
   if (hudBadge && hudLoc && hudEvt) {
-    if (loc || evt) {
-      hudLoc.textContent = loc || 'Location';
-      if (evt) {
-        hudEvt.textContent = evt;
-        hudEvt.classList.remove('hidden');
-      } else {
-        hudEvt.classList.add('hidden');
-      }
+    if (evt) {
+      hudLoc.textContent = evt;
+      hudEvt.classList.add('hidden');
       hudBadge.classList.remove('hidden');
     } else {
       hudBadge.classList.add('hidden');
@@ -72,117 +65,54 @@ function updateSessionDisplays() {
 
   // 3. Result Modal session tag
   const resBadge = $('resultSessionTag');
-  const resLoc = $('resultLocDisplay');
   const resEvt = $('resultEventDisplay');
-  if (resBadge && resLoc && resEvt) {
-    if (loc || evt) {
-      resLoc.textContent = loc ? ('📍 ' + loc) : '';
-      resEvt.textContent = evt ? ('(' + evt + ')') : '';
+  if (resBadge && resEvt) {
+    if (evt) {
+      resEvt.textContent = evt;
       resBadge.classList.remove('hidden');
     } else {
       resBadge.classList.add('hidden');
     }
   }
 
-  // Sync location selects
-  const introSel = $('introLocationSelect');
-  const setSel = $('settingsLocationSelect');
-  if (introSel && introSel.value !== sessionLocation) introSel.value = sessionLocation;
-  if (setSel && setSel.value !== sessionLocation) setSel.value = sessionLocation;
-
-  // Sync event selects
   const introEvt = $('introEventSelect');
-  const settingsEvt = $('settingsEventSelect');
-  if (introEvt && introEvt.value !== sessionEvent) introEvt.value = sessionEvent;
-  if (settingsEvt && settingsEvt.value !== sessionEvent) settingsEvt.value = sessionEvent;
-
-  // Sync note inputs
-  const introNote = $('introNoteInput');
-  const settingsNote = $('settingsNoteInput');
-  const resultNote = $('resultNoteInput');
-  if (introNote && introNote.value !== sessionNote) introNote.value = sessionNote;
-  if (settingsNote && settingsNote.value !== sessionNote) settingsNote.value = sessionNote;
-  if (resultNote && resultNote.value !== sessionNote) resultNote.value = sessionNote;
+  if (introEvt && introEvt.value !== sessionEventId) introEvt.value = sessionEventId;
 }
 
-function populateLocationDropdowns(locations) {
-  backendLocationsList = locations || [];
-  const introSel = $('introLocationSelect');
-  const setSel = $('settingsLocationSelect');
-
-  [introSel, setSel].forEach(sel => {
-    if (!sel) return;
-    const currentVal = sel.value;
-    sel.innerHTML = '<option value="">Select Location</option>' +
-      backendLocationsList.map(l => '<option value="' + l.name + '">' + l.name + '</option>').join('');
-    sel.value = currentVal;
-  });
-
-  if (introSel && introSel.value !== sessionLocation) introSel.value = sessionLocation;
-  if (setSel && setSel.value !== sessionLocation) setSel.value = sessionLocation;
+function populateEventDropdown(events) {
+  backendEventsList = events || [];
+  const select = $('introEventSelect');
+  if (!select) return;
+  select.replaceChildren(new Option('Select Event', ''));
+  backendEventsList.forEach((event) => select.add(new Option(event.name, String(event.id))));
+  select.value = sessionEventId;
 }
 
-async function fetchBackendLocations() {
+async function fetchBackendEvents() {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/locations`);
+    const res = await fetch(`${BACKEND_URL}/api/events`);
     if (res.ok) {
       const list = await res.json();
-      populateLocationDropdowns(list);
+      populateEventDropdown(list);
     }
   } catch (err) {
-    console.warn('Could not fetch backend locations', err);
+    console.warn('Could not fetch backend events', err);
   }
 }
 
 function initBoothSession() {
-  const introSel = $('introLocationSelect');
   const introEvt = $('introEventSelect');
-  const introNote = $('introNoteInput');
-
-  const setSel = $('settingsLocationSelect');
-  const setEvt = $('settingsEventSelect');
-  const setNote = $('settingsNoteInput');
-
-  const resultNote = $('resultNoteInput');
-
-  // Populate 100 events into the event dropdowns
-  [introEvt, setEvt].forEach((sel) => {
-    if (sel && sel.options.length <= 1) {
-      for (let i = 1; i <= 100; i++) {
-        const opt = document.createElement('option');
-        opt.value = 'Event ' + i;
-        opt.textContent = 'Event ' + i;
-        sel.appendChild(opt);
-      }
-    }
-  });
-
-  // Location dropdown selection
-  [introSel, setSel].forEach((sel) => {
-    sel?.addEventListener('change', (e) => {
-      sessionLocation = e.target.value;
-      updateSessionDisplays();
-    });
-  });
-
-  // Event dropdown selection
-  [introEvt, setEvt].forEach((select) => {
-    select?.addEventListener('change', (e) => {
-      sessionEvent = e.target.value;
-      updateSessionDisplays();
-    });
-  });
-
-  // Note inputs
-  [introNote, setNote, resultNote].forEach((noteInput) => {
-    noteInput?.addEventListener('input', (e) => {
-      sessionNote = e.target.value;
-      updateSessionDisplays();
-    });
+  introEvt?.addEventListener('change', (e) => {
+    const selected = backendEventsList.find(event => String(event.id) === e.target.value);
+    if (!selected) return;
+    sessionEventId = String(selected.id);
+    sessionEvent = selected.name;
+    e.target.disabled = true;
+    updateSessionDisplays();
   });
 
   updateSessionDisplays();
-  fetchBackendLocations();
+  fetchBackendEvents();
 }
 
 
@@ -402,6 +332,10 @@ $('fileSource').addEventListener('change', (e) => e.target.files?.[0] && start(e
 async function start(file = null) {
   const status = $('introStatus');
   const btn = $('btnStart');
+  if (!sessionEventId) {
+    status.textContent = 'Select an event before starting.';
+    return;
+  }
   if (ar) {
     // already running (came back via Home): show the camera screen again
     if (file) return void location.reload(); // switching to a video file needs a fresh start
@@ -879,9 +813,8 @@ async function startUpload(blob, name) {
   }, 8000);
   try {
     const res = await uploadVideo(blob, name, {
-      location: sessionLocation,
+      eventId: sessionEventId,
       event: sessionEvent,
-      note: sessionNote,
       signal: controller.signal,
       onProgress: (f) => {
         sent = f;

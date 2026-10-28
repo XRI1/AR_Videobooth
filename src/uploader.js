@@ -16,7 +16,7 @@ const UPLOAD_TIMEOUT_MS = 5 * 60 * 1000; // generous: the free Render tier can t
  * @param {{ onProgress?: (fraction: number) => void, signal?: AbortSignal }} [opts]
  * @returns {Promise<{ token: string, viewUrl: string, downloadUrl: string, qrCode: string }>}
  */
-export function uploadVideo(blob, filename, { location, event, note, onProgress, signal } = {}) {
+export function uploadVideo(blob, filename, { eventId, event, onProgress, signal } = {}) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${BACKEND_URL}/api/videos/upload`);
@@ -42,9 +42,8 @@ export function uploadVideo(blob, filename, { location, event, note, onProgress,
 
     const form = new FormData();
     form.append('video', blob, filename);
-    if (location && String(location).trim()) form.append('location', String(location).trim());
+    if (eventId) form.append('eventId', String(eventId));
     if (event && String(event).trim()) form.append('event', String(event).trim());
-    if (note && String(note).trim()) form.append('note', String(note).trim());
     xhr.send(form);
   });
 }
