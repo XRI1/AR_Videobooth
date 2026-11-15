@@ -735,7 +735,7 @@ async function stopRecording() {
     if (video?.size) {
       toast('Video saved', 1200);
       showResult(video, 'video');
-    } else toast("This take could not be saved (the phone's video encoder failed). Please record again: the next take uses a different encoder.", 6000);
+    } else toast("This take could not be saved (the phone's video encoder failed). Please record again: the next take uses a different encoder." + (recorder.lastError ? ` [${recorder.lastError}]` : ''), 9000);
   } catch (err) {
     console.error(err);
     toast(`Saving the video failed: ${err.message}`);

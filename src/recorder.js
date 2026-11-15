@@ -292,7 +292,16 @@ export class Recorder {
   async _probeEncoder(config) {
     let ok = false;
     let failed = false;
-    const enc = new VideoEncoder({ output: () => (ok = true), error: () => (failed = true) });
+    // The MP4 muxer needs the decoder config (avcC for H.264, colorSpace for VP9) that
+    // the encoder attaches to its first chunk. Some phone encoders omit it, and then the
+    // take can't be saved, so such a setup must not pass the probe.
+    const enc = new VideoEncoder({
+      output: (_chunk, meta) => {
+        const dc = meta?.decoderConfig;
+        if (dc && (!config.avc || dc.description) && (!config.codec.startsWith('vp09') || dc.colorSpace)) ok = true;
+      },
+      error: () => (failed = true),
+    });
     try {
       enc.configure(config);
       const cv = document.createElement('canvas');
@@ -355,10 +364,21 @@ export class Recorder {
 
     this._failed = false;
     this._outputCount = 0;
+    this._gotVideoConfig = false;
     this.videoEncoder = new VideoEncoder({
       output: (chunk, meta) => {
         this._outputCount++;
-        this.muxer.addVideoChunk(chunk, meta);
+        try {
+          // Chrome's H.264 encoder can emit chunks with duration = null, which
+          // mp4-muxer's addVideoChunk rejects: use the raw API with a frame duration.
+          const raw = new Uint8Array(chunk.byteLength);
+          chunk.copyTo(raw);
+          this.muxer.addVideoChunkRaw(raw, chunk.type, chunk.timestamp, chunk.duration ?? Math.round(1e6 / (this.fps || 30)), meta);
+        } catch (err) {
+          this._lastErr = `muxer: ${err.message || err}`;
+          throw err;
+        }
+        if (meta?.decoderConfig) this._gotVideoConfig = true;
         if (this._transcoder) {
           // live conversion to H.264 in the worker (VP9 takes)
           const data = new Uint8Array(chunk.byteLength);
@@ -382,7 +402,11 @@ export class Recorder {
 
     if (audio) {
       this.audioEncoder = new AudioEncoder({
-        output: (chunk, meta) => this.muxer.addAudioChunk(chunk, meta),
+        output: (chunk, meta) => {
+          const raw = new Uint8Array(chunk.byteLength);
+          chunk.copyTo(raw);
+          this.muxer.addAudioChunkRaw(raw, chunk.type, chunk.timestamp, chunk.duration ?? Math.round((1024 / audio.config.sampleRate) * 1e6), meta);
+        },
         error: (err) => console.warn('Audio encoder error (video continues)', err),
       });
       this.audioEncoder.configure(audio.config);
@@ -422,6 +446,7 @@ export class Recorder {
 
   _fail(err) {
     console.error('Video encoder error', err);
+    this._lastErr = `encoder: ${err?.message || err}`;
     this._failed = true;
   }
 
@@ -468,8 +493,12 @@ export class Recorder {
       // time-limited: a stuck encoder must never hang "Saving video..."
       if (this.videoEncoder?.state === 'configured') await withTimeout(this.videoEncoder.flush().catch(() => {}), STOP_TIMEOUT_MS);
       if (this.audioEncoder?.state === 'configured') await withTimeout(this.audioEncoder.flush().catch(() => {}), STOP_TIMEOUT_MS);
-      if (!this._outputCount) {
-        this._broken.add(this.via); // produced nothing: use the next way next time
+      // No chunk ever carried a decoder config (some phone encoders omit it): the MP4
+      // muxer can't write the file (it throws "reading 'colorSpace'"), so treat as broken.
+      if (!this._outputCount || !this._gotVideoConfig) {
+        this.lastError = `${this.via}: ${this._outputCount} chunks, decoder config ${this._gotVideoConfig ? 'yes' : 'missing'}${this._lastErr ? ', ' + this._lastErr : ''}`;
+        console.warn('Take not saved:', this.lastError);
+        this._broken.add(this.via); // produced nothing usable: use the next way next time
         return null;
       }
       if (this._withMusic) {
@@ -484,7 +513,14 @@ export class Recorder {
           this.musicStatus = `no music (${err.message || err})`;
         }
       }
-      this.muxer.finalize(); // keeps everything encoded so far, even after an encoder error
+      try {
+        this.muxer.finalize(); // keeps everything encoded so far, even after an encoder error
+      } catch (err) {
+        console.warn('MP4 finalize failed, switching encoder next time', err);
+        this.lastError = `${this.via}: finalize failed (${err.message || err})`;
+        this._broken.add(this.via);
+        return null;
+      }
       if (this._transcoder) {
         this._transcoder.stopped = true; // ready for convertToH264()
         this._transcoder.segmentStart = this._segmentStart;
